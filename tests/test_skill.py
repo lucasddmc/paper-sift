@@ -41,6 +41,20 @@ class SkillTest(unittest.TestCase):
             self.assertIn("strongly recommended", text)
             self.assertNotIn("1,000 papers", text)
 
+    def test_long_stages_run_in_the_background(self):
+        text = (SKILL_DIR / "SKILL.md").read_text()
+        self.assertIn("**Long stages run in the background.**", text)
+        rule = text.split("**Long stages run in the background.**", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("run_in_background", rule)
+        self.assertIn("2 hours", rule)
+        background, foreground = rule.split("foreground", 1)
+        for command in ("collect", "score", "fulltext"):
+            self.assertIn(f"`{command}`", background)
+        for command in ("doctor", "search", "lookup", "check", "estimate", "sample", "validate", "report", "export"):
+            self.assertIn(f"`{command}`", foreground)
+        self.assertNotIn("above about 40", text)
+        self.assertNotIn("When the pool ceiling is above", text)
+
     def test_agent_is_read_only(self):
         fm = frontmatter(helpers.ROOT / "agents" / "blind-labeler.md")
         self.assertEqual(fm["name"], "blind-labeler")

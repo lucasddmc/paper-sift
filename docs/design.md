@@ -257,7 +257,8 @@ MCP servers, but not the Bash commands a skill runs.
   each source (`pool.partial.json.gz`, deleted once the pool is written) and every 50 OpenAlex lookups;
   `--fresh` starts over.
 - The skill pre-approves only `Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*)` through
-  `allowed-tools`. Stages that may exceed ten minutes run in the background.
+  `allowed-tools`. `collect`, `score` and `fulltext` run in the background (`run_in_background`,
+  timeout above the estimate, at most 2 hours); the other commands run in the foreground.
 
 ## 12. Repository layout
 

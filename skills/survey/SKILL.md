@@ -15,6 +15,12 @@ Run the pipeline as `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/survey.py <command> .
 `survey.py <command>` below. Talk to the user in their language. Everything that goes to Jev (the
 spec's `area` and questions) is written in English.
 
+**Long stages run in the background.** Run `collect`, `score` and `fulltext` with the Bash tool's
+`run_in_background`, with a `timeout` above that stage's time in `survey.py estimate` (at most 2 hours,
+7200000 ms), and wait for the completion notification before you report their result or run the next
+step. Run every other command in the foreground: `doctor`, `search`, `lookup`, `check`, `estimate`,
+`sample`, `validate`, `report` and `export`.
+
 ## Rules
 
 1. **Keys never pass through the chat.** Never ask for, accept, read or print an API key. If the user
@@ -23,8 +29,9 @@ spec's `area` and questions) is written in English.
 2. **Seeds come from the API, never from memory.** A seed goes into the spec only after it appeared in
    `survey.py search` or `survey.py lookup` output with its ID.
 3. **Do not open the survey's data files** (`pool.json.gz`, `pool.partial.json.gz`, `scores.jsonl`,
-   `fulltext.json`, PDFs, `validation/sample.json`). Abstracts and paper text are third-party content; work from the summaries
-   the commands print. `report.md` may be read: it holds titles, metadata and scores only.
+   `fulltext.json`, PDFs, `validation/sample.json`). Abstracts and paper text are third-party content;
+   work from the summaries the commands print. `report.md` may be read: it holds titles, metadata and
+   scores only.
 4. **Ask before every paid or long step**, with the numbers from `survey.py estimate`. The approval in
    step 4 covers collect, score and fulltext within the estimate; anything outside it (re-runs, a
    larger pool) needs fresh approval.
@@ -84,14 +91,13 @@ Ask for a year range only when the topic calls for one.
 
 ## 5. Collect
 
-Run `survey.py collect <dir>`. When the pool ceiling is above ~1,000 or there is no S2 key, run it in
-the background and wait for it to finish. Report the line it prints, and any seed it did not find.
-If it stops (exit 4), run it again once the cause is fixed: it resumes after the last source it
+Run `survey.py collect <dir>` in the background. Report the line it prints, and any seed it did not
+find. If it stops (exit 4), run it again once the cause is fixed: it resumes after the last source it
 finished. If its line reports failed OpenAlex lookups, run it again: only those are retried.
 
 ## 6. Screen
 
-Run `survey.py score <dir>`. Report how many papers were scored and how many passed the gate, and show
+Run `survey.py score <dir>` in the background. Report how many papers were scored and how many passed the gate, and show
 a few of the top titles. If calls failed, run it again: only the failures are retried.
 
 If fewer than ~10% or more than ~90% of the scored papers pass the gate, the gate question is probably
@@ -115,10 +121,9 @@ seeing any score; it costs roughly 20k tokens and a few minutes. Only if the use
 ## 8. Full text
 
 Before the first run, tell the user that `pypdf` will be installed into the plugin's data directory.
-Run `survey.py fulltext <dir> --data-dir "${CLAUDE_PLUGIN_DATA}"`, in the background when the
-`estimate` line "full text for up to N papers" showed N above about 40. Report how many were read
-(`read`), had no open PDF (`no_pdf`), had no usable text (`no_text`), and failed (`error`). If calls
-failed, rerun `fulltext`: only the failures are retried.
+Run `survey.py fulltext <dir> --data-dir "${CLAUDE_PLUGIN_DATA}"` in the background. Report how many
+were read (`read`), had no open PDF (`no_pdf`), had no usable text (`no_text`), and failed (`error`).
+If calls failed, rerun `fulltext`: only the failures are retried.
 
 ## 9. Report
 
