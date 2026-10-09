@@ -37,25 +37,28 @@ def rebuild(inverted_index):
     return " ".join(word for _, word in positions)
 
 
-def find_abstract(title, *, transport=None, sleep=time.sleep):
-    # Return immediately if title normalizes to empty string
-    if not _norm(title):
-        return None
-
+def lookup(title, *, transport=None, sleep=time.sleep):
+    """("found", abstract); ("none", None) when no result matches the title; ("failed", None) when OpenAlex
+    could not be asked (an HTTP or network error after retries, or a reply that is not the expected JSON),
+    so that a later run tries again."""
+    if not _norm(title):  # a blank title would match anything
+        return "none", None
     q = urllib.parse.urlencode({"search": title, "per-page": 3, "select": "title,abstract_inverted_index"})
     try:
         response = request_json("GET", f"{API}?{q}", transport=transport, sleep=sleep, retries=3, timeout=30)
-        # Ensure response is a dict and results is a list
-        if not isinstance(response, dict):
-            return None
-        results = response.get("results") or []
-        if not isinstance(results, list):
-            return None
     except (HttpError, ValueError):
-        # ValueError catches JSONDecodeError (malformed JSON) and other JSON-related errors
-        return None
-
+        return "failed", None
+    results = response.get("results") if isinstance(response, dict) else None
+    if not isinstance(results, list):
+        return "failed", None
     for work in results:
         if work.get("abstract_inverted_index") and title_similarity(work.get("title"), title) >= MIN_SIMILARITY:
-            return rebuild(work["abstract_inverted_index"])
-    return None
+            text = rebuild(work["abstract_inverted_index"])
+            if text.strip():
+                return "found", text
+    return "none", None
+
+
+def find_abstract(title, *, transport=None, sleep=time.sleep):
+    """The abstract, or None. Kept for compatibility: `lookup` also tells a miss from a failure."""
+    return lookup(title, transport=transport, sleep=sleep)[1]

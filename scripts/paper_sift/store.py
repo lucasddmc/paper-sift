@@ -4,7 +4,8 @@ import json
 import pathlib
 
 FILES = {
-    "spec": "spec.json", "pool": "pool.json.gz", "scores": "scores.jsonl", "fulltext": "fulltext.json",
+    "spec": "spec.json", "pool": "pool.json.gz", "pool_partial": "pool.partial.json.gz", "scores": "scores.jsonl",
+    "fulltext": "fulltext.json",
     "sample": "validation/sample.json", "sample_key": "validation/key.json", "labels": "validation/labels.json",
     "validation": "validation/result.json", "report": "report.md", "bib": "reading-list.bib", "csv": "scored.csv",
 }

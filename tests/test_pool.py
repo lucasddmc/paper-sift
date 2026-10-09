@@ -1,3 +1,4 @@
+import json
 import unittest
 
 import helpers  # noqa: F401
@@ -26,6 +27,35 @@ class FakeS2:
 
     def search(self, query, limit=100):
         return [P("A", cites=10), P("E", year=2024)]
+
+
+class RecordingS2(FakeS2):
+    """FakeS2 that records each source it is asked for and fails on the one named `fail_on`."""
+
+    def __init__(self, fail_on=None):
+        super().__init__()
+        self.calls, self.fail_on = [], fail_on
+
+    def _asked(self, name):
+        self.calls.append(name)
+        if name == self.fail_on:
+            raise RuntimeError(f"{name} failed")
+
+    def batch(self, ids, fields=None):
+        self._asked("batch")
+        return super().batch(ids, fields)
+
+    def edges(self, pid, relation):
+        self._asked(f"{pid}:{relation}")
+        return super().edges(pid, relation)
+
+    def recommendations(self, ids):
+        self._asked("recommendations")
+        return super().recommendations(ids)
+
+    def search(self, query, limit=100):
+        self._asked("search")
+        return super().search(query, limit)
 
 
 def spec(**over):
@@ -83,7 +113,48 @@ class PoolTest(unittest.TestCase):
 
     def test_fill_abstracts_is_serial_and_counts(self):
         papers = [P("a", abstract=None), P("b"), P("c", abstract=None)]
-        found, looked = poolmod.fill_abstracts(papers, lambda t: "Recovered." if t == "Paper a" else None,
-                                               sleep=lambda s: None, log=lambda m: None)
-        self.assertEqual((found, looked), (1, 2))
+        counts = poolmod.fill_abstracts(papers, lambda t: ("found", "Recovered.") if t == "Paper a" else ("none", None),
+                                        sleep=lambda s: None, log=lambda m: None)
+        self.assertEqual(counts, (1, 1, 0))  # found, none, failed
         self.assertEqual(papers[0]["abstract_source"], "openalex")
+
+    def test_fill_abstracts_records_outcomes_and_retries_only_failures(self):
+        papers = [P("a", abstract=None), P("b"), P("c", abstract=None), P("d", abstract=None)]
+        outcome = {"Paper a": ("none", None), "Paper c": ("failed", None), "Paper d": ("found", "Recovered.")}
+        asked, saves = [], []
+
+        def lookup(title):
+            asked.append(title)
+            return outcome[title]
+
+        counts = poolmod.fill_abstracts(papers, lookup, sleep=lambda s: None, log=lambda m: None, every=2,
+                                        save=lambda: saves.append(len(asked)))
+        self.assertEqual(counts, (1, 1, 1))
+        self.assertEqual([p.get("abstract_lookup") for p in papers], ["none", None, "failed", "found"])
+        self.assertEqual((papers[3]["abstract"], papers[3]["abstract_source"]), ("Recovered.", "openalex"))
+        self.assertNotIn("abstract", {k for k, v in papers[2].items() if v})
+        self.assertEqual(saves, [2])  # every 2 lookups
+        asked.clear()
+        outcome["Paper c"] = ("found", "Second try.")
+        self.assertEqual(poolmod.fill_abstracts(papers, lookup, sleep=lambda s: None, log=lambda m: None),
+                         (2, 1, 0))
+        self.assertEqual(asked, ["Paper c"])  # found and none are not asked again
+
+    def test_collect_saves_after_each_named_source(self):
+        done = []
+        poolmod.collect(spec(), FakeS2(), log=lambda m: None, save=lambda state: done.append(list(state["done"])))
+        self.assertEqual(done[-1], ["seeds", "seed1:citations", "seed1:references", "seed2:citations",
+                                    "seed2:references", "recommendations", "query1"])
+        self.assertEqual([len(d) for d in done], [1, 2, 3, 4, 5, 6, 7])
+
+    def test_collect_resumes_from_a_checkpoint(self):
+        states = []
+        with self.assertRaises(RuntimeError):
+            poolmod.collect(spec(), RecordingS2(fail_on="S1:references"), log=lambda m: None,
+                            save=lambda state: states.append(json.loads(json.dumps(state))))  # as stored on disk
+        checkpoint = states[-1]
+        self.assertEqual((checkpoint["done"], checkpoint["missing"]), (["seeds", "seed1:citations"], ["arXiv:404"]))
+        again = RecordingS2()
+        resumed = poolmod.collect(spec(), again, log=lambda m: None, checkpoint=checkpoint)
+        self.assertEqual(again.calls, ["S1:references", "S2:citations", "S2:references", "recommendations", "search"])
+        self.assertEqual(resumed, poolmod.collect(spec(), FakeS2(), log=lambda m: None))

@@ -157,7 +157,8 @@ Raw citation counts would punish recent papers.
 
 **Abstracts.** S2 often lacks them. After trimming, missing abstracts are looked up in OpenAlex by
 title, serially (parallel requests failed in testing), and accepted only on a title similarity of
-0.92 or more. Papers still without an abstract are listed, not scored.
+0.92 or more. A lookup that fails (an error, not a miss) is retried on the next `collect`. Papers still
+without an abstract are listed, not scored.
 
 ## 6. Abstract stage
 
@@ -252,7 +253,9 @@ MCP servers, but not the Bash commands a skill runs.
   the next run.
 - S2 without a key often returns 429. `collect` retries 10 times with backoff; `search` and `lookup`
   stop after 3 retries (about 14 s) and say how to get the free key. OpenAlex is called serially.
-- Every stage writes to disk as it goes and resumes when re-run.
+- Every stage writes to disk as it goes and resumes when re-run. `collect` saves its progress after
+  each source (`pool.partial.json.gz`, deleted once the pool is written) and every 50 OpenAlex lookups;
+  `--fresh` starts over.
 - The skill pre-approves only `Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*)` through
   `allowed-tools`. Stages that may exceed ten minutes run in the background.
 

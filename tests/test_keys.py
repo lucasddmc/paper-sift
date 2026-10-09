@@ -81,6 +81,7 @@ class KeysTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             for value in ("a\nb", "a b", "tsk-\u00e9"):
                 with self.subTest(value=value):
-                    with self.assertRaisesRegex(ValueError, "^key contains spaces, line breaks or non-ASCII characters$"):
+                    message = "^key contains spaces, line breaks or non-ASCII characters$"
+                    with self.assertRaisesRegex(ValueError, message):
                         keys.save_key("typesafe", value, home=home)
             self.assertFalse(keys.key_path("typesafe", home).exists())

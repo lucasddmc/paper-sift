@@ -51,39 +51,59 @@ def trim(papers, size):
     return seeds + rest[:room], rest[room:]
 
 
-def collect(spec, s2, *, log=print):
-    found = s2.batch([s["id"] for s in spec["seeds"]])
-    pool, seeds, missing = {}, [], []
-    for given, paper in zip(spec["seeds"], found):
-        if not paper or not paper.get("paperId"):
-            missing.append(given["id"])
-            log(f"seed not found on Semantic Scholar: {given['id']}")
-            continue
-        seeds.append(paper)
-        add(pool, paper, "seed")
-    if not seeds:
-        raise NoSeedsError("none of the seeds was found on Semantic Scholar")
+def collect(spec, s2, *, log=print, checkpoint=None, save=None):
+    """The seeds, their citations and references, recommendations and keyword search; then the year
+    filter and the trim. Resumable: after each source (`seeds`, `seed{n}:citations`, `seed{n}:references`,
+    `recommendations`, `query{i}`) save(state) receives everything gathered so far, and a run given that
+    state as `checkpoint` skips the sources it lists as done."""
+    state = checkpoint or {"seeds": [], "missing": [], "pool": {}, "done": []}
+    seeds, missing, pool, done = state["seeds"], state["missing"], state["pool"], state["done"]
+    if done:
+        log(f"resuming: {len(done)} sources already collected")
+
+    def finished(source):
+        done.append(source)
+        if save:
+            save(state)
+
+    if "seeds" not in done:
+        found = s2.batch([s["id"] for s in spec["seeds"]])
+        for given, paper in zip(spec["seeds"], found):
+            if not paper or not paper.get("paperId"):
+                missing.append(given["id"])
+                log(f"seed not found on Semantic Scholar: {given['id']}")
+                continue
+            seeds.append(paper)
+            add(pool, paper, "seed")
+        if not seeds:
+            raise NoSeedsError("none of the seeds was found on Semantic Scholar")
+        finished("seeds")
     src = spec["sources"]
     for n, seed in enumerate(seeds, 1):
         name = (seed.get("title") or seed["paperId"])[:60]
         for relation, label, wanted in (("citations", "cites", src["citations"]),
                                         ("references", "cited-by", src["references"])):
-            if wanted:
+            if wanted and f"seed{n}:{relation}" not in done:
                 got = s2.edges(seed["paperId"], relation)
                 log(f"seed{n} {name}: {len(got)} {relation}")
                 for p in got:
                     add(pool, p, f"{label}:seed{n}")
-    if src["recommendations"]:
+                finished(f"seed{n}:{relation}")
+    if src["recommendations"] and "recommendations" not in done:
         got = s2.recommendations([s["paperId"] for s in seeds])
         log(f"recommendations: {len(got)}")
         for p in got:
             add(pool, p, "recommended")
+        finished("recommendations")
     if src["search_per_query"]:
         for i, query in enumerate(spec["queries"], 1):
+            if f"query{i}" in done:
+                continue
             got = s2.search(query, limit=src["search_per_query"])
             log(f"query{i} {query!r}: {len(got)}")
             for p in got:
                 add(pool, p, f"query:{i}")
+            finished(f"query{i}")
     candidates = [p for p in pool.values() if "seed" in p["via"] or in_years(p, spec["years"])]
     set_importance(candidates)
     kept, trimmed = trim(candidates, spec["pool_size"])
@@ -95,16 +115,22 @@ def collect(spec, s2, *, log=print):
             "trimmed": [{"paperId": p["paperId"], "title": p.get("title"), "via": p["via"]} for p in trimmed]}
 
 
-def fill_abstracts(papers, find_abstract, *, log=print, sleep=time.sleep, pause=0.25, every=50):
-    """Serial OpenAlex lookups for papers without an abstract. Returns (found, looked_up)."""
-    missing = [p for p in papers if not p.get("abstract")]
+def fill_abstracts(papers, lookup, *, log=print, sleep=time.sleep, pause=0.25, every=50, save=None):
+    """Serial OpenAlex lookups for papers without an abstract; lookup(title) -> (status, text). Each paper
+    looked up records `abstract_lookup`: found, none (no match) or failed. A later run skips found and none
+    and retries failed; save() runs every `every` lookups so that an interrupted fill resumes.
+    Returns (found, none, failed) over all papers, earlier runs included."""
+    todo = [p for p in papers if not p.get("abstract") and p.get("abstract_lookup") not in ("found", "none")]
     found = 0
-    for i, p in enumerate(missing, 1):
-        text = find_abstract(p.get("title") or "")
-        if text:
+    for i, p in enumerate(todo, 1):
+        status, text = lookup(p.get("title") or "")
+        p["abstract_lookup"] = status
+        if status == "found":
             p["abstract"], p["abstract_source"] = text, "openalex"
             found += 1
         sleep(pause)
         if i % every == 0:
-            log(f"OpenAlex: {i}/{len(missing)} looked up, {found} found")
-    return found, len(missing)
+            log(f"OpenAlex: {i}/{len(todo)} looked up, {found} found")
+            if save:
+                save()
+    return tuple(sum(1 for p in papers if p.get("abstract_lookup") == s) for s in ("found", "none", "failed"))

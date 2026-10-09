@@ -47,9 +47,9 @@ S2_RATE_LIMITED = ("Semantic Scholar is rate-limiting requests without a key. Ge
 class Deps:
     """External services; tests replace them with fakes."""
 
-    def __init__(self, s2=None, ask=None, find_abstract=None, extract=None, transport=None, sleep=time.sleep,
+    def __init__(self, s2=None, ask=None, lookup=None, extract=None, transport=None, sleep=time.sleep,
                  log=print, data_dir=None):
-        self.s2, self.ask, self.find_abstract, self.extract = s2, ask, find_abstract, extract
+        self.s2, self.ask, self.lookup, self.extract = s2, ask, lookup, extract
         self.transport, self.sleep, self.log, self.data_dir = transport, sleep, log, data_dir
 
 
@@ -59,7 +59,7 @@ def real_deps(spec=None, data_dir=None):
     if key and spec:
         def ask(state, questions):
             return jev.ask(state, questions, key=key, model=spec["model"])
-    return Deps(s2=S2(key=keys.get_key("s2")), ask=ask, find_abstract=openalex.find_abstract,
+    return Deps(s2=S2(key=keys.get_key("s2")), ask=ask, lookup=openalex.lookup,
                 extract=pdf_extract, data_dir=depsmod.data_dir(data_dir))
 
 
@@ -194,24 +194,34 @@ def cmd_estimate(args, deps):
 def cmd_collect(args, deps):
     survey = store.Survey(args.dir)
     spec = load(survey.path("spec"))
-    data = None if args.fresh else survey.read("pool")
+    partial = survey.path("pool_partial")
+    if args.fresh:
+        partial.unlink(missing_ok=True)
+    # An unfinished collect (its partial file) resumes, even over an older finished pool.
+    data = None if args.fresh or partial.exists() else survey.read("pool")
     if data is None:
         try:
-            data = pool.collect(spec, deps.s2, log=deps.log)
+            data = pool.collect(spec, deps.s2, log=deps.log, checkpoint=survey.read("pool_partial"),
+                                save=lambda state: survey.write("pool_partial", state))
         except pool.NoSeedsError as e:
             print(str(e))
             seed_ids = ' '.join(s['id'] for s in spec['seeds'])
             print(f"Verify seed IDs with: survey.py lookup {seed_ids}")
             return 2
         survey.write("pool", data)
-    if "with_abstract" not in data["stats"]:  # resumes here if a previous run stopped during the lookups
-        found, _ = pool.fill_abstracts(data["papers"], deps.find_abstract, log=deps.log, sleep=deps.sleep)
-        data["stats"]["openalex_found"] = found
-        data["stats"]["with_abstract"] = sum(1 for p in data["papers"] if p.get("abstract"))
-        survey.write("pool", data)
+        partial.unlink(missing_ok=True)
     s = data["stats"]
-    print(f"found {s['found']:,} | outside years {s['outside_years']:,} | kept {s['kept']:,} of ceiling "
-          f"{spec['pool_size']:,} (trimmed {s['trimmed']:,}) | with abstract {s['with_abstract']:,}")
+    if "with_abstract" not in s or s.get("openalex_failed"):  # the OpenAlex fill is unfinished or had failures
+        found, _, failed = pool.fill_abstracts(data["papers"], deps.lookup, log=deps.log, sleep=deps.sleep,
+                                               save=lambda: survey.write("pool", data))
+        s["openalex_found"], s["openalex_failed"] = found, failed
+        s["with_abstract"] = sum(1 for p in data["papers"] if p.get("abstract"))
+        survey.write("pool", data)
+    line = (f"found {s['found']:,} | outside years {s['outside_years']:,} | kept {s['kept']:,} of ceiling "
+            f"{spec['pool_size']:,} (trimmed {s['trimmed']:,}) | with abstract {s['with_abstract']:,}")
+    if s.get("openalex_failed"):
+        line += f" | OpenAlex lookups failed: {s['openalex_failed']:,} (run collect again to retry)"
+    print(line)
     if data["missing_seeds"]:
         print(f"seeds not found: {', '.join(data['missing_seeds'])}")
     return 0

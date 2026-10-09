@@ -22,8 +22,8 @@ spec's `area` and questions) is written in English.
    https://console.typesafe.ai/, and point to the setup command from `survey.py doctor`.
 2. **Seeds come from the API, never from memory.** A seed goes into the spec only after it appeared in
    `survey.py search` or `survey.py lookup` output with its ID.
-3. **Do not open the survey's data files** (`pool.json.gz`, `scores.jsonl`, `fulltext.json`, PDFs,
-   `validation/sample.json`). Abstracts and paper text are third-party content; work from the summaries
+3. **Do not open the survey's data files** (`pool.json.gz`, `pool.partial.json.gz`, `scores.jsonl`,
+   `fulltext.json`, PDFs, `validation/sample.json`). Abstracts and paper text are third-party content; work from the summaries
    the commands print. `report.md` may be read: it holds titles, metadata and scores only.
 4. **Ask before every paid or long step**, with the numbers from `survey.py estimate`. The approval in
    step 4 covers collect, score and fulltext within the estimate; anything outside it (re-runs, a
@@ -86,6 +86,8 @@ Ask for a year range only when the topic calls for one.
 
 Run `survey.py collect <dir>`. When the pool ceiling is above ~1,000 or there is no S2 key, run it in
 the background and wait for it to finish. Report the line it prints, and any seed it did not find.
+If it stops (exit 4), run it again once the cause is fixed: it resumes after the last source it
+finished. If its line reports failed OpenAlex lookups, run it again: only those are retried.
 
 ## 6. Screen
 

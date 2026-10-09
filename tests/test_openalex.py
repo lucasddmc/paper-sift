@@ -48,6 +48,26 @@ class OpenAlexTest(unittest.TestCase):
         self.assertEqual(openalex.find_abstract("Schrödinger equation solvers", transport=t, sleep=lambda s: None),
                          "Diffusion models work.")
 
+    def test_lookup_tells_a_match_a_miss_and_a_failure_apart(self):
+        def noop(s):
+            return None
+
+        def never(*args):
+            raise AssertionError("blank titles are not looked up")
+
+        cases = [(transport_with([{"title": "Diffusion Models Work!", "abstract_inverted_index": INV}]),
+                  ("found", "Diffusion models work.")),
+                 (transport_with([{"title": "Something else entirely", "abstract_inverted_index": INV}]),
+                  ("none", None)),
+                 (transport_with([]), ("none", None)),
+                 (transport_with([], status=503), ("failed", None)),
+                 (lambda *a: (200, b"<html>not json</html>"), ("failed", None)),
+                 (lambda *a: (200, b'{"error": "unexpected"}'), ("failed", None))]
+        for transport, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(openalex.lookup("Diffusion models work", transport=transport, sleep=noop), expected)
+        self.assertEqual(openalex.lookup("  ", transport=never, sleep=noop), ("none", None))
+
     def test_html_response_returns_none(self):
         # Non-JSON response should be gracefully handled
         def transport_html(method, url, headers, body, timeout):

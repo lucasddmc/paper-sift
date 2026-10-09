@@ -11,7 +11,8 @@ from unittest import mock
 
 import helpers
 import survey
-from paper_sift import keys
+from paper_sift import keys, store
+from paper_sift.net import HttpError
 from paper_sift.s2 import S2
 
 REAL_GET_KEY = keys.get_key  # the CLI tests patch keys.get_key; tests that need real lookups use this one
@@ -53,6 +54,35 @@ class FakeS2:
         return [dict(p) for p in SEARCH]
 
 
+class RecordingS2(FakeS2):
+    """FakeS2 that records the sources asked and answers 503 on the one named `fail_on`."""
+
+    def __init__(self, fail_on=None):
+        self.calls, self.fail_on = [], fail_on
+
+    def _asked(self, name):
+        self.calls.append(name)
+        if name == self.fail_on:
+            raise HttpError(503, b"", f"https://api.semanticscholar.org/graph/v1/{name}")
+
+    def batch(self, ids, fields=None):
+        if not (fields and "openAccessPdf" in fields):
+            self._asked("seeds")
+        return super().batch(ids, fields)
+
+    def edges(self, pid, relation):
+        self._asked(relation)
+        return super().edges(pid, relation)
+
+    def recommendations(self, ids):
+        self._asked("recommendations")
+        return super().recommendations(ids)
+
+    def search(self, query, limit=100, fields=None):
+        self._asked("search")
+        return super().search(query, limit, fields)
+
+
 RULES = {"topic": "diffusion", "survey": "survey", "sub_sampling": "sampler", "sub_guidance": "guidance",
          "didactic": "tutorial", "map": "survey"}
 
@@ -80,7 +110,7 @@ class CliTest(unittest.TestCase):
         self.dir = base / "paper-sift" / "2026-10-09-diffusion-models"
         self.dir.mkdir(parents=True)
         shutil.copy(helpers.ROOT / "tests" / "fixtures" / "spec.json", self.dir / "spec.json")
-        self.deps = survey.Deps(s2=FakeS2(), ask=fake_ask, find_abstract=lambda title: None, extract=fake_extract,
+        self.deps = survey.Deps(s2=FakeS2(), ask=fake_ask, lookup=lambda title: ("none", None), extract=fake_extract,
                                 transport=pdf_transport, sleep=lambda s: None, log=lambda m: None,
                                 data_dir=base / "data")
         no_keys = mock.patch.object(keys, "get_key", return_value=None)  # never read the real key files
@@ -210,8 +240,8 @@ class CliTest(unittest.TestCase):
                     raise error
 
                 self.deps.transport, self.deps.sleep = offline, waits.append
-                with mock.patch.object(keys, "get_key",
-                                       side_effect=lambda service, **kw: "tsk-secret" if service == "typesafe" else None):
+                typesafe_only = {"typesafe": "tsk-secret"}
+                with mock.patch.object(keys, "get_key", side_effect=lambda service, **kw: typesafe_only.get(service)):
                     code, out = self.cli("doctor")
                 line = next(x for x in out.splitlines() if x.startswith("typesafe key:"))
                 self.assertIn("typesafe key: present, not verified now (", line)
@@ -279,6 +309,69 @@ class CliTest(unittest.TestCase):
                 self.assertTrue(calls[0].startswith("https://api.semanticscholar.org/"))
                 self.assertIn("s2 key: not set (strongly recommended", out)
                 self.assertIn(f'python3 "{survey.SETUP}" s2', out)
+
+    def test_collect_resumes_after_a_failure(self):
+        d = str(self.dir)
+        self.deps.s2 = RecordingS2(fail_on="references")  # the 3rd source: seeds, citations, references
+        code, out = self.cli("collect", d)
+        self.assertEqual(code, 4, out)
+        self.assertTrue((self.dir / "pool.partial.json.gz").exists())
+        self.assertFalse((self.dir / "pool.json.gz").exists())
+        self.deps.s2 = RecordingS2()
+        code, out = self.cli("collect", d)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.deps.s2.calls, ["references", "recommendations", "search"])
+        self.assertIn("kept 9 of ceiling 100", out)
+        self.assertFalse((self.dir / "pool.partial.json.gz").exists())
+        straight = self.dir.parent / "straight"
+        straight.mkdir()
+        shutil.copy(self.dir / "spec.json", straight / "spec.json")
+        self.deps.s2 = FakeS2()
+        self.assertEqual(self.cli("collect", str(straight))[0], 0)
+        self.assertEqual(store.Survey(d).read("pool"), store.Survey(straight).read("pool"))
+
+    def test_collect_fresh_discards_the_partial_pool(self):
+        d = str(self.dir)
+        self.deps.s2 = RecordingS2(fail_on="recommendations")
+        self.assertEqual(self.cli("collect", d)[0], 4)
+        self.deps.s2 = RecordingS2()
+        code, out = self.cli("collect", d, "--fresh")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.deps.s2.calls, ["seeds", "citations", "references", "recommendations", "search"])
+        self.assertFalse((self.dir / "pool.partial.json.gz").exists())
+
+    def test_failed_openalex_lookups_are_retried_alone(self):
+        class MoreS2(FakeS2):
+            def edges(self, pid, relation):
+                extra = [P("N", "Another note without abstract", None)] if relation == "references" else []
+                return super().edges(pid, relation) + extra
+
+        asked = []
+        self.deps.s2 = MoreS2()
+
+        def first(title):
+            asked.append(title)
+            return ("failed", None) if title == "Untitled workshop note" else ("none", None)
+
+        self.deps.lookup = first
+        code, out = self.cli("collect", str(self.dir))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(sorted(asked), ["Another note without abstract", "Untitled workshop note"])
+        self.assertIn("with abstract 8 | OpenAlex lookups failed: 1 (run collect again to retry)", out)
+        asked.clear()
+
+        def second(title):
+            asked.append(title)
+            return "found", "A note recovered from OpenAlex."
+
+        self.deps.lookup = second
+        code, out = self.cli("collect", str(self.dir))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(asked, ["Untitled workshop note"])
+        self.assertIn("with abstract 9", out)
+        self.assertNotIn("failed", out)
+        code, out = self.cli("collect", str(self.dir))
+        self.assertEqual(asked, ["Untitled workshop note"])  # the fill is done: nothing is looked up again
 
     def test_collect_with_unresolvable_seeds_exits_2(self):
         # Fake S2 that returns None for all batch calls
