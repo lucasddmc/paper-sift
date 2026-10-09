@@ -10,6 +10,9 @@ from unittest import mock
 import helpers
 import survey
 from paper_sift import keys
+from paper_sift.s2 import S2
+
+REAL_GET_KEY = keys.get_key  # the CLI tests patch keys.get_key; tests that need real lookups use this one
 
 SEED = {"paperId": "S1", "title": "Denoising Diffusion Probabilistic Models", "year": 2020, "citationCount": 9000,
         "abstract": "We present diffusion probabilistic models for image synthesis.",
@@ -78,6 +81,9 @@ class CliTest(unittest.TestCase):
         self.deps = survey.Deps(s2=FakeS2(), ask=fake_ask, find_abstract=lambda title: None, extract=fake_extract,
                                 transport=pdf_transport, sleep=lambda s: None, log=lambda m: None,
                                 data_dir=base / "data")
+        no_keys = mock.patch.object(keys, "get_key", return_value=None)  # never read the real key files
+        no_keys.start()
+        self.addCleanup(no_keys.stop)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -153,6 +159,41 @@ class CliTest(unittest.TestCase):
             code, out = self.cli("doctor")
         self.assertIn("typesafe key: ok (jev-1.13.0)", out)
         self.assertNotIn("tsk-secret", out)
+
+    def test_malformed_key_file_exits_3_without_printing_it(self):
+        with tempfile.TemporaryDirectory() as home:
+            path = keys.key_path("typesafe", home)
+            path.parent.mkdir(parents=True)
+            path.write_text("tsk-secret\nsecond-line\n")
+            with mock.patch.object(keys, "get_key",
+                                   side_effect=lambda service, **kw: REAL_GET_KEY(service, env={}, home=home)):
+                code, out = self.cli("doctor")
+        self.assertEqual(code, 3, out)
+        self.assertIn(f"The typesafe key at {path} is malformed: run python3 \"{survey.SETUP}\" typesafe again.", out)
+        self.assertNotIn("tsk-secret", out)
+        self.assertNotIn("second-line", out)
+
+    def test_malformed_key_in_the_environment_exits_3_before_any_command(self):
+        env = {"TYPESAFE_API_KEY": "tsk-secret\nx"}
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as home, \
+                mock.patch.object(keys, "get_key",
+                                  side_effect=lambda service, **kw: REAL_GET_KEY(service, env=env, home=home)), \
+                contextlib.redirect_stdout(out):
+            code = survey.main(["check", str(self.dir)])  # real deps: the key is read before the command runs
+        self.assertEqual(code, 3, out.getvalue())
+        self.assertIn("The typesafe key at TYPESAFE_API_KEY is malformed", out.getvalue())
+        self.assertIn("unset", out.getvalue())
+        self.assertNotIn("tsk-secret", out.getvalue())
+
+    def test_collect_never_prints_a_rejected_header_value(self):
+        def refuse_header(method, url, headers, body, timeout):
+            raise ValueError(f"Invalid header value {headers['x-api-key'].encode()!r}")
+
+        self.deps.s2 = S2(key="s2-secret\nx", transport=refuse_header, sleep=lambda s: None)
+        code, out = self.cli("collect", str(self.dir))
+        self.assertEqual(code, 4, out)
+        self.assertNotIn("s2-secret", out)
 
     def test_collect_with_unresolvable_seeds_exits_2(self):
         # Fake S2 that returns None for all batch calls

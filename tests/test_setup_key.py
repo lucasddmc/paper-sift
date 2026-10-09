@@ -54,6 +54,17 @@ class SetupKeyTest(unittest.TestCase):
         code, _, saved, _ = run(["s2"], "   ", lambda s, k: "x")
         self.assertEqual((code, saved), (1, None))
 
+    def test_malformed_key_is_not_checked_saved_or_echoed(self):
+        checked = []
+        for entered in ("tsk secret", "tsk\tsecret", "tsk-secret\u00e9", "tsk-secret\u200b"):
+            with self.subTest(entered=entered):
+                code, out, saved, _ = run(["typesafe"], entered, lambda s, k: checked.append(k), existing="old-key")
+                self.assertEqual((code, saved), (1, "old-key"))
+                self.assertIn("That key contains spaces, line breaks or other characters a key cannot have; "
+                              "nothing was saved.", out)
+                self.assertNotIn("secret", out)
+        self.assertEqual(checked, [])
+
     def test_usage_on_bad_arguments(self):
         code, out, _, _ = run([], "", lambda s, k: "x")
         self.assertEqual(code, 2)

@@ -61,6 +61,17 @@ class NetTest(unittest.TestCase):
             request("GET", "https://x.test", transport=t, retries=2, sleep=lambda s: None)
         self.assertEqual(ctx.exception.status, 500)
 
+    def test_invalid_header_value_becomes_http_error_without_the_value(self):
+        t = scripted(ValueError("Invalid header value b'Bearer secret'"))
+        with self.assertRaises(HttpError) as ctx:
+            request("GET", "https://x.test/a", transport=t, sleep=lambda s: self.fail("not retried"))
+        e = ctx.exception
+        self.assertEqual((e.status, e.body, e.url), (0, b"invalid request (header or URL)", "https://x.test/a"))
+        self.assertNotIn("secret", str(e))
+        self.assertNotIn("secret", repr(e))
+        self.assertIsNone(e.__context__)  # the original error, which quotes the value, is not chained
+        self.assertEqual(len(t.calls), 1)
+
     def test_retries_truncated_responses(self):
         waits = []
         t = scripted(http.client.IncompleteRead(b"x"), (200, b"[]"))

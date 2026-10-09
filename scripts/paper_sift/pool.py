@@ -3,6 +3,10 @@ import bisect
 import time
 
 
+class NoSeedsError(Exception):
+    """None of the spec's seeds was found on Semantic Scholar."""
+
+
 def add(pool, paper, via):
     """Insert or merge a paper; `via` records which source found it."""
     entry = pool.get(paper["paperId"])
@@ -58,7 +62,7 @@ def collect(spec, s2, *, log=print):
         seeds.append(paper)
         add(pool, paper, "seed")
     if not seeds:
-        raise ValueError("none of the seeds was found on Semantic Scholar")
+        raise NoSeedsError("none of the seeds was found on Semantic Scholar")
     src = spec["sources"]
     for n, seed in enumerate(seeds, 1):
         name = (seed.get("title") or seed["paperId"])[:60]

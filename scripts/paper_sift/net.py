@@ -12,6 +12,7 @@ import urllib.request
 from . import USER_AGENT
 
 RETRY_STATUSES = {429, 500, 502, 503, 504, 529}
+INVALID_REQUEST = b"invalid request (header or URL)"
 
 
 class HttpError(Exception):
@@ -44,10 +45,15 @@ def request(method, url, *, headers=None, payload=None, transport=None, retries=
         hdrs["Content-Type"] = "application/json"
     wait = 2.0
     for attempt in range(retries + 1):
+        invalid = False
         try:
             status, data = transport(method, url, hdrs, body, timeout)
+        except ValueError:  # an invalid header value or URL; its message can quote a key, so it is dropped
+            invalid = True
         except (OSError, http.client.HTTPException) as e:  # URLError, timeouts, refused connections, truncated or malformed responses
             status, data = None, repr(e).encode()
+        if invalid:  # raised here, outside the handler, so the original error is not chained
+            raise HttpError(0, INVALID_REQUEST, url)
         if status is not None and 200 <= status < 300:
             return data
         if status in (401, 403):

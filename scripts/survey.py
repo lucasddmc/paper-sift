@@ -64,6 +64,15 @@ def key_problem(rejected=False):
     return 3
 
 
+def malformed_key(e):
+    """A key with a line break, space or non-ASCII character: say where it is, never what it is."""
+    print(f'The {e.service} key at {e.source} is malformed: run python3 "{SETUP}" {e.service} again.')
+    var = keys.SERVICES[e.service][0]
+    if e.source == var:
+        print(f"{var} is set in the environment and overrides the saved key: unset it as well.")
+    return 3
+
+
 def show(papers):
     for p in papers:
         ids = p.get("externalIds") or {}
@@ -149,7 +158,7 @@ def cmd_collect(args, deps):
     if data is None:
         try:
             data = pool.collect(spec, deps.s2, log=deps.log)
-        except ValueError as e:
+        except pool.NoSeedsError as e:
             print(str(e))
             seed_ids = ' '.join(s['id'] for s in spec['seeds'])
             print(f"Verify seed IDs with: survey.py lookup {seed_ids}")
@@ -415,32 +424,34 @@ def parser():
 
 def main(argv=None, deps=None):
     args = parser().parse_args(argv)
-    if deps is None:
-        spec = None
-        if getattr(args, "dir", None):
-            try:
-                spec = load(pathlib.Path(args.dir) / "spec.json")
-            except SpecError:
-                pass  # the command reports it
-        if args.command == "fulltext" and spec and spec["fulltext_questions"]:
-            try:
-                python = depsmod.ensure_pypdf(depsmod.data_dir(args.data_dir))
-            except RuntimeError as e:
-                print(e)
-                return 5
-            sys.stdout.flush()
-            sys.stderr.flush()
-            result = _maybe_reexec(
-                python=python,
-                argv=[str(pathlib.Path(__file__).resolve()), *sys.argv[1:]],
-                environ=os.environ,
-                execv=os.execv
-            )
-            if result is not None:
-                return result
-        deps = real_deps(spec, getattr(args, "data_dir", None))
     try:
+        if deps is None:
+            spec = None
+            if getattr(args, "dir", None):
+                try:
+                    spec = load(pathlib.Path(args.dir) / "spec.json")
+                except SpecError:
+                    pass  # the command reports it
+            if args.command == "fulltext" and spec and spec["fulltext_questions"]:
+                try:
+                    python = depsmod.ensure_pypdf(depsmod.data_dir(args.data_dir))
+                except RuntimeError as e:
+                    print(e)
+                    return 5
+                sys.stdout.flush()
+                sys.stderr.flush()
+                result = _maybe_reexec(
+                    python=python,
+                    argv=[str(pathlib.Path(__file__).resolve()), *sys.argv[1:]],
+                    environ=os.environ,
+                    execv=os.execv
+                )
+                if result is not None:
+                    return result
+            deps = real_deps(spec, getattr(args, "data_dir", None))
         return COMMANDS[args.command](args, deps)
+    except keys.KeyFormatError as e:
+        return malformed_key(e)
     except SpecError as e:
         print(f"spec error: {e}")
         return 2

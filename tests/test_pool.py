@@ -61,6 +61,13 @@ class PoolTest(unittest.TestCase):
         self.assertEqual(out["stats"]["found"], 7)
         self.assertTrue(any("seed not found" in line for line in logs))
 
+    def test_no_resolvable_seed_raises_no_seeds_error(self):
+        s2 = FakeS2()
+        s2.seeds = {}
+        with self.assertRaises(poolmod.NoSeedsError):
+            poolmod.collect(spec(), s2, log=lambda m: None)
+        self.assertFalse(issubclass(poolmod.NoSeedsError, ValueError))  # the CLI catches it and nothing else
+
     def test_years_filter_spares_seeds(self):
         out = poolmod.collect(spec(years=[2015, 2030]), FakeS2(), log=lambda m: None)
         self.assertNotIn("B", {p["paperId"] for p in out["papers"]})

@@ -34,8 +34,8 @@ spec's `area` and questions) is written in English.
 
 - **exit 2**: the spec or the inputs are wrong (e.g. seeds that do not resolve). Read the error
   message, fix the spec or the seed IDs with `survey.py lookup`, then run `survey.py check`.
-- **exit 3**: key missing or rejected. Show the `setup:` command it printed and ask the user to run
-  it in their own terminal.
+- **exit 3**: key missing, rejected or malformed (a line break or space in it). Show the setup command
+  it printed and ask the user to run it in their own terminal.
 - **exit 4**: a service refused the request. If Semantic Scholar returns 429 ("Too Many Requests"),
   wait a few minutes and retry. Suggest a free Semantic Scholar key to avoid rate limits.
 - **exit 5**: `pypdf` could not be installed. Show the printed hint to the user.

@@ -30,9 +30,14 @@ def main(argv=None, getpass_fn=getpass.getpass, checker=check, home=None):
         print(__doc__.strip())
         return 2
     service = argv[0]
-    value = getpass_fn(f"{LABELS[service]} (typing is hidden): ").strip()
-    if not value:
+    entered = getpass_fn(f"{LABELS[service]} (typing is hidden): ")
+    if not entered.strip():
         print("No key entered; nothing was saved.")
+        return 1
+    try:
+        value = keys.clean(entered)  # before any request: a malformed key never goes on the wire
+    except ValueError:
+        print("That key contains spaces, line breaks or other characters a key cannot have; nothing was saved.")
         return 1
 
     # Check if a previous key exists
