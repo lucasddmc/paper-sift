@@ -75,6 +75,9 @@ def validate(raw):
     tau = spec["tau"]
     if isinstance(tau, bool) or not isinstance(tau, (int, float)) or not 0 < tau < 1:
         raise SpecError("tau must be between 0 and 1")
+    model = spec.get("model")
+    if not isinstance(model, str) or not model.strip():
+        raise SpecError("model must be a non-empty string, e.g. jev-1.13.0")
     seeds = spec.get("seeds")
     if not isinstance(seeds, list) or not seeds or not all(isinstance(s, dict) and isinstance(s.get("id"), str)
                                                           for s in seeds):

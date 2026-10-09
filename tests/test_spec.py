@@ -79,6 +79,9 @@ class SpecTest(unittest.TestCase):
             (valid(policy={"gate": "topic", "priority": "p.topic * importance", "fulltext": None}), "fulltext: null"),
             (valid(sources=None), "sources: null"),
             (valid(policy="x"), "policy: string"),
+            (valid(model=None), "model: null"),
+            (valid(model=1.13), "model: float"),
+            (valid(model=""), "model: empty string"),
         ]
         for raw, desc in test_cases:
             with self.subTest(case=desc), self.assertRaises(specmod.SpecError):
