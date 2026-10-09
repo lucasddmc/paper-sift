@@ -109,10 +109,10 @@ seeing any score; it costs roughly 20k tokens and a few minutes. Only if the use
 ## 8. Full text
 
 Before the first run, tell the user that `pypdf` will be installed into the plugin's data directory.
-Run `survey.py fulltext <dir> --data-dir "${CLAUDE_PLUGIN_DATA}"`, in the background when
-`survey.py estimate` says "full text for more than" N papers (typically ~40). Report how many were
-read, how many had no open PDF (`no_text` count), and how many had errors. If calls failed, rerun
-`fulltext`: only the failures are retried.
+Run `survey.py fulltext <dir> --data-dir "${CLAUDE_PLUGIN_DATA}"`, in the background when the
+`estimate` line "full text for up to N papers" showed N above about 40. Report how many were read
+(`read`), had no open PDF (`no_pdf`), had no usable text (`no_text`), and failed (`error`). If calls
+failed, rerun `fulltext`: only the failures are retried.
 
 ## 9. Report
 

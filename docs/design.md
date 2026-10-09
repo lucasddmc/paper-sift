@@ -55,8 +55,9 @@ language; everything sent to Jev is in English, its strongest language.
 8. **Read.** `survey.py fulltext` downloads open PDFs of the selected papers and asks the full-text
    questions (§8).
 9. **Report.** `survey.py report` writes `report.md`; `survey.py export` writes `.bib` and `.csv`
-   (§9). Claude summarizes the top of the list and offers policy changes, which re-run the report
-   for free.
+   (§9). Claude summarizes the top of the list and offers policy changes. Ranking fields
+   (`final_rank`, `start_here`, `final_top`) re-run the report for free; other policy edits
+   (`gate`, `priority`, `policy.fulltext`) need paid re-runs, asked first.
 
 ## 4. The spec
 

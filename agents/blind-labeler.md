@@ -17,4 +17,4 @@ and of its reader) and `papers` (a list of `{id, title, abstract}`).
    and judge the paper by its subject.
 4. Reply with JSON only, no text before or after, labeling every paper in the file's order:
 
-{"labels": [{"id": "<id>", "label": "relevant" | "not_relevant", "reason": "<at most 15 words>"}]}
+{"labels": [{"id": "<id>", "label": "relevant", "reason": "<at most 15 words>"}, {"id": "<id>", "label": "not_relevant", "reason": "<at most 15 words>"}]}
