@@ -192,8 +192,8 @@ not small losses of recall.
 **Retrieval:** arXiv when the paper has an arXiv ID, otherwise S2's open-access link. arXiv requests
 are spaced 3 s apart.
 
-**Text:** extracted with `pypdf`, cut at the last "References" or "Bibliography" heading found after
-30% of the document, and capped at 90,000 characters (about 25k tokens, inside Jev's 32k state
+**Text:** extracted with `pypdf`, cut at the first "References" or "Bibliography" heading found after
+30% of the document (which also drops appendices), and capped at 90,000 characters (about 25k tokens, inside Jev's 32k state
 limit). On a size error the call is retried with half the text. The text goes only to Jev and is
 never printed. Papers without an open PDF are listed in the report for manual reading.
 
@@ -261,12 +261,14 @@ paper-sift/
 │   └── marketplace.json       # the repo is its own marketplace
 ├── skills/survey/
 │   ├── SKILL.md               # /paper-sift:survey
+│   ├── spec-reference.md
 │   └── question-guide.md
 ├── agents/blind-labeler.md
 ├── scripts/
-│   ├── survey.py              # doctor, search, estimate, collect, score, sample, validate, fulltext, report, export
+│   ├── survey.py              # doctor, search, lookup, check, estimate, collect, score, sample, validate, fulltext, report, export
 │   ├── setup_key.py
-│   └── paper_sift/            # jev, s2, openalex, policy, pdftext, keys, report
+│   └── paper_sift/            # net, keys, jev, s2, openalex, policy, spec, store, pool, screen, ranking,
+│                              # validate, pdftext, deps, fulltext, report, estimate
 ├── tests/
 ├── docs/design.md
 ├── README.md
