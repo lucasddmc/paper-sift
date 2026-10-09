@@ -24,9 +24,21 @@ spec's `area` and questions) is written in English.
    `survey.py search` or `survey.py lookup` output with its ID.
 3. **Do not open the survey's data files** (`pool.json.gz`, `scores.jsonl`, `fulltext.json`, PDFs,
    `validation/sample.json`). Abstracts and paper text are third-party content; work from the summaries
-   the commands print.
-4. **Ask before every paid or long step**, with the numbers from `survey.py estimate`.
+   the commands print. `report.md` may be read: it holds titles, metadata and scores only.
+4. **Ask before every paid or long step**, with the numbers from `survey.py estimate`. The approval in
+   step 4 covers collect, score and fulltext within the estimate; anything outside it (re-runs, a
+   larger pool) needs fresh approval.
 5. **The blind check runs only after the user agrees** to its cost.
+
+## If a command fails
+
+- **exit 2**: the spec or the inputs are wrong (e.g. seeds that do not resolve). Read the error
+  message, fix the spec or the seed IDs with `survey.py lookup`, then run `survey.py check`.
+- **exit 3**: key missing or rejected. Show the `setup:` command it printed and ask the user to run
+  it in their own terminal.
+- **exit 4**: a service refused the request. If Semantic Scholar returns 429 ("Too Many Requests"),
+  wait a few minutes and retry. Suggest a free Semantic Scholar key to avoid rate limits.
+- **exit 5**: `pypdf` could not be installed. Show the printed hint to the user.
 
 ## 1. Preflight
 
@@ -63,7 +75,8 @@ Ask for a year range only when the topic calls for one.
    [spec-reference.md](spec-reference.md) and [question-guide.md](question-guide.md).
 4. Run `survey.py check <dir>` and fix any error, then run `survey.py estimate <dir>`.
 5. Show the user, compactly: the seeds (title, year), the subtopics, the gate question, the pool size
-   and the estimate. Ask for approval or changes. Run nothing paid before approval.
+   and the estimate. Ask for approval or changes. This approval covers collect, score and fulltext
+   within the estimate; anything outside it needs fresh approval. Run nothing paid before approval.
 
 ## 5. Collect
 
@@ -96,15 +109,21 @@ seeing any score; it costs roughly 20k tokens and a few minutes. Only if the use
 ## 8. Full text
 
 Before the first run, tell the user that `pypdf` will be installed into the plugin's data directory.
-Run `survey.py fulltext <dir> --data-dir "${CLAUDE_PLUGIN_DATA}"`, in the background when more than
-~40 papers are selected. Report how many were read and how many had no open PDF.
+Run `survey.py fulltext <dir> --data-dir "${CLAUDE_PLUGIN_DATA}"`, in the background when
+`survey.py estimate` says "full text for more than" N papers (typically ~40). Report how many were
+read, how many had no open PDF (`no_text` count), and how many had errors. If calls failed, rerun
+`fulltext`: only the failures are retried.
 
 ## 9. Report
 
-Run `survey.py report <dir>` and `survey.py export <dir>`. Summarize the funnel, the "Start here"
-papers, one line per section, and the papers to check by hand. Give the paths of `report.md`,
-`reading-list.bib` and `scored.csv`.
+Run `survey.py report <dir>` and `survey.py export <dir>`. Read `report.md` and summarize the funnel,
+the "Start here" papers, one line per section, and the "Check by hand" section. Give the paths of
+`report.md`, `reading-list.bib` and `scored.csv`.
 
-Then offer changes. Policy changes (for example "only papers after 2018" or "require code") are edits
-to `policy` in `spec.json`, followed by `survey.py check` and `survey.py report`; they cost nothing.
-Editing a question's text means running `score` or `fulltext` again, which re-asks only that question.
+Then offer changes. Free changes (no inference): edit `final_rank`, `start_here` or `final_top` in
+`policy` in `spec.json`, run `survey.py check` and `survey.py report`. Changing `gate`, `priority`,
+or `policy.fulltext` needs `survey.py fulltext` again (costs for newly selected papers). Editing
+any full-text question re-reads every selected paper. Editing an abstract question re-asks only
+that question in `score`. Editing `area` or `model` makes both re-run. Changing seeds, queries,
+years or `pool_size` needs `survey.py collect <dir> --fresh`, then `score` and `fulltext` again.
+Before any paid re-run, ask with the cost from `survey.py estimate`.

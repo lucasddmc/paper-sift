@@ -56,7 +56,7 @@ and questions with a cost estimate; and runs each stage after you approve. Resul
 | `report.md` | funnel, reading list, papers to check by hand, cost |
 | `reading-list.bib` | the list as BibTeX |
 | `scored.csv` | every screened paper with Jev's probabilities |
-| `spec.json` | the survey's definition; edit `policy` and re-run the report for free |
+| `spec.json` | the survey's definition; ranking changes re-run for free (see the skill) |
 
 ## How it decides
 
@@ -93,6 +93,8 @@ abstracts in OpenAlex one at a time.
 - To TypeSafe: the area description (written from your topic and background), titles, abstracts, and
   the full text of open-access papers.
 - To Semantic Scholar, OpenAlex and arXiv: search queries, paper IDs and titles.
+- Open-access PDFs are downloaded from whatever host Semantic Scholar links to (besides arXiv).
+- On the first full-text run, `pypdf` is installed into the plugin's data directory from PyPI.
 - Nothing else from your files.
 
 ## Limitations
@@ -100,7 +102,8 @@ abstracts in OpenAlex one at a time.
 - One recipe for now: learning an area. Novelty checks and property searches are planned.
 - Only open-access full text is read; the report lists the rest for you.
 - Jev reads English best, so questions are always written in English.
-- Papers without an abstract on Semantic Scholar or OpenAlex are listed, not screened.
+- Papers without an abstract on Semantic Scholar or OpenAlex are not screened; the report lists the
+  best-connected of them (found by two or more sources, up to 15).
 
 ## Development
 

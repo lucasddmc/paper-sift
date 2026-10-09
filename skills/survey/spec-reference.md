@@ -13,7 +13,8 @@
     "sub_sampling": {"label": "Sampling", "instructions": "Is `paper` about sampling from diffusion models faster or better, such as new samplers, ODE/SDE solvers, or distillation of the sampling process?", "true": "Sampling speed or quality is a main contribution", "false": "Sampling is not a main contribution"}
   },
   "fulltext_questions": {
-    "didactic": {"instructions": "Reading the full text of `paper`: could a newcomer with the background described in `area` learn the core concepts of the area from it?", "true": "It explains its problem, background and method clearly and self-containedly; a newcomer could follow it without prior reading in the area", "false": "It assumes the reader already knows the area, or it is narrow and incremental"}
+    "didactic": {"instructions": "Reading the full text of `paper`: could a newcomer with the background described in `area` learn the core concepts of the area from it?", "true": "It explains its problem, background and method clearly and self-containedly; a newcomer could follow it without prior reading in the area", "false": "It assumes the reader already knows the area, or it is narrow and incremental"},
+    "map": {"instructions": "Does `paper` give the reader a map of the area described in `area`: a taxonomy, a systematic comparison of many methods, or a synthesis of what works and what does not?", "true": "A reader comes out with an overview of many methods", "false": "It covers one method or one setting"}
   },
   "policy": {
     "gate": "topic",
@@ -25,8 +26,6 @@
   }
 }
 ```
-
-(The `start_here` above assumes a `map` full-text question; see question-guide.md.)
 
 | field | meaning |
 |---|---|
