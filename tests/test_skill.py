@@ -33,6 +33,14 @@ class SkillTest(unittest.TestCase):
     def test_key_rule_present(self):
         self.assertIn("Never ask for, accept, read or print an API key", (SKILL_DIR / "SKILL.md").read_text())
 
+    def test_s2_key_is_strongly_recommended(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text()
+        self.assertIn("s2 api: rate-limited", skill)
+        self.assertIn("before collecting", skill)
+        for text in (skill, (helpers.ROOT / "README.md").read_text()):
+            self.assertIn("strongly recommended", text)
+            self.assertNotIn("1,000 papers", text)
+
     def test_agent_is_read_only(self):
         fm = frontmatter(helpers.ROOT / "agents" / "blind-labeler.md")
         self.assertEqual(fm["name"], "blind-labeler")

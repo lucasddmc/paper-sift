@@ -220,6 +220,66 @@ class CliTest(unittest.TestCase):
                 self.assertNotIn("tsk-secret", out)
         self.assertEqual(waits, [2.0, 4.0])  # the refused connection was retried with the fake sleep
 
+    def test_search_and_lookup_give_up_after_3_retries_on_rate_limits(self):
+        for argv in (["search", "diffusion models"], ["lookup", "arXiv:2006.11239"]):
+            with self.subTest(command=argv[0]):
+                calls, waits = [], []
+
+                def rate_limited(method, url, headers, body, timeout):
+                    calls.append(url)
+                    return 429, b'{"message": "Too Many Requests"}'
+
+                self.deps.s2 = S2(transport=rate_limited, sleep=waits.append)  # default: 10 retries
+                code, out = self.cli(*argv)
+                self.assertEqual(code, 4, out)
+                self.assertEqual(len(calls), 4)
+                self.assertEqual(waits, [2.0, 4.0, 8.0])
+                self.assertIn("Semantic Scholar is rate-limiting requests without a key. Get a free key at "
+                              "https://www.semanticscholar.org/product/api and save it with: "
+                              f'python3 "{survey.SETUP}" s2', out)
+
+    def test_rate_limit_with_a_key_does_not_ask_for_a_key(self):
+        self.deps.s2 = S2(key="s2-key", transport=lambda *a: (429, b""), sleep=lambda s: None)
+        code, out = self.cli("search", "diffusion")
+        self.assertEqual(code, 4, out)
+        self.assertNotIn("without a key", out)
+        self.assertIn("429", out)
+
+    def test_s2_refusal_blames_the_key_only_when_one_is_set(self):
+        for key, code_wanted, wanted in ((None, 4, "Semantic Scholar refused the request (HTTP 403)."),
+                                         ("s2-key", 3, "Semantic Scholar rejected the S2 key.")):
+            with self.subTest(key=key):
+                self.deps.s2 = S2(key=key, transport=lambda *a: (403, b""), sleep=lambda s: None)
+                code, out = self.cli("search", "diffusion")
+                self.assertEqual(code, code_wanted, out)
+                self.assertIn(wanted, out)
+                if key is None:
+                    self.assertNotIn("S2 key", out)
+
+    def test_doctor_reports_the_s2_api_state(self):
+        offline = urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+        for answer, wanted in (((200, b'[{"paperId": "x", "title": "Attention Is All You Need"}]'),
+                                "s2 api: reachable"),
+                               ((429, b""), "s2 api: rate-limited (429): a free key is strongly recommended"),
+                               (offline, "s2 api: unreachable (URLError(ConnectionRefusedError(61, "
+                                         "'Connection refused')))")):
+            with self.subTest(wanted=wanted):
+                calls = []
+
+                def s2_only(method, url, headers, body, timeout):
+                    calls.append(url)
+                    if isinstance(answer, Exception):
+                        raise answer
+                    return answer
+
+                self.deps.transport = s2_only
+                code, out = self.cli("doctor")  # no keys: TypeSafe is not called
+                self.assertIn(wanted, out.splitlines())
+                self.assertEqual(len(calls), 1)  # one request, no retries
+                self.assertTrue(calls[0].startswith("https://api.semanticscholar.org/"))
+                self.assertIn("s2 key: not set (strongly recommended", out)
+                self.assertIn(f'python3 "{survey.SETUP}" s2', out)
+
     def test_collect_with_unresolvable_seeds_exits_2(self):
         # Fake S2 that returns None for all batch calls
         class FakeBadS2(FakeS2):

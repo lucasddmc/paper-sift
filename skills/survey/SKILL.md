@@ -36,8 +36,9 @@ spec's `area` and questions) is written in English.
   message, fix the spec or the seed IDs with `survey.py lookup`, then run `survey.py check`.
 - **exit 3**: key missing, rejected or malformed (a line break or space in it). Show the setup command
   it printed and ask the user to run it in their own terminal.
-- **exit 4**: a service refused the request. If Semantic Scholar returns 429 ("Too Many Requests"),
-  wait a few minutes and retry. Suggest a free Semantic Scholar key to avoid rate limits.
+- **exit 4**: a service refused the request. If it says Semantic Scholar is rate-limiting requests
+  without a key, show the setup command it printed and ask the user to run it in their own terminal
+  (the key is free), then retry; with a key, wait a few minutes and retry.
 - **exit 5**: `pypdf` could not be installed. Show the printed hint to the user.
 
 ## 1. Preflight
@@ -47,8 +48,11 @@ Run `survey.py doctor --data-dir "${CLAUDE_PLUGIN_DATA}"`.
 - If the TypeSafe key is missing or rejected, show the `setup:` command it printed in a `bash` block
   and ask the user to run it **in their own terminal**, not in this chat and not with `!`. Keys come
   from https://console.typesafe.ai/. Wait until they confirm, then run `doctor` again.
-- A missing Semantic Scholar key is fine. Mention it only when the pool will exceed ~1,000 papers
-  (free key at https://www.semanticscholar.org/product/api; `doctor` prints its setup command).
+- A Semantic Scholar key is strongly recommended: without one, Semantic Scholar often rate-limits
+  requests for many minutes. If `doctor` prints `s2 api: rate-limited`, tell the user to get the free
+  key at https://www.semanticscholar.org/product/api and to run the `recommended setup:` command it
+  printed in their own terminal **before collecting**, then run `doctor` again. If the API is reachable
+  without a key, mention the key once and go on.
 
 ## 2. Topic
 

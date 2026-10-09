@@ -22,6 +22,7 @@ import os
 import pathlib
 import sys
 import time
+import urllib.parse
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -36,6 +37,11 @@ from paper_sift.spec import SpecError, load  # noqa: E402
 
 SETUP = pathlib.Path(__file__).resolve().parent / "setup_key.py"
 SHOW_FIELDS = "paperId,title,year,externalIds,citationCount"
+S2_HOST = "api.semanticscholar.org"
+FOREGROUND_RETRIES = 3  # search and lookup wait in the foreground: 2 + 4 + 8 s of backoff, then they stop
+S2_RATE_LIMITED = ("Semantic Scholar is rate-limiting requests without a key. Get a free key at "
+                   "https://www.semanticscholar.org/product/api and save it with: "
+                   f'python3 "{SETUP}" s2')
 
 
 class Deps:
@@ -71,6 +77,14 @@ def malformed_key(e):
     if e.source == var:
         print(f"{var} is set in the environment and overrides the saved key: unset it as well.")
     return 3
+
+
+def host(url):
+    return urllib.parse.urlsplit(url).hostname or ""
+
+
+def s2_key_set(deps):
+    return bool(getattr(getattr(deps, "s2", None), "key", None))
 
 
 def reason(e):
@@ -110,11 +124,13 @@ def cmd_doctor(args, deps):
             print(f'setup: python3 "{SETUP}" typesafe')
         except HttpError as e:
             print(f"typesafe key: present, not verified now ({reason(e)})")
-    if keys.get_key("s2"):
+    s2_key = keys.get_key("s2")
+    if s2_key:
         print("s2 key: present")
     else:
-        print("s2 key: not set (optional; recommended above ~1,000 papers)")
-        print(f'optional setup: python3 "{SETUP}" s2')
+        print("s2 key: not set (strongly recommended: without it Semantic Scholar often rate-limits requests)")
+        print(f'recommended setup: python3 "{SETUP}" s2')
+    print(f"s2 api: {s2_api(deps, s2_key)}")
     ready = depsmod.have_pypdf() or depsmod.venv_python(deps.data_dir).exists()
     print("pdf support: " + ("ready" if ready else
                              f"pypdf will be installed into {deps.data_dir / 'venv'} on the first full-text run"))
@@ -122,12 +138,30 @@ def cmd_doctor(args, deps):
     return 0 if ok else 1
 
 
+def s2_api(deps, key):
+    """One Semantic Scholar request without retries: reachable, rate-limited or unreachable."""
+    probe = S2(key=key, transport=deps.transport, sleep=deps.sleep, pause=0, retries=0)
+    try:
+        probe.batch(["arXiv:1706.03762"], fields="title")
+    except AuthError as e:
+        if key:
+            return f'rejected the S2 key (HTTP {e.status}); replace it with: python3 "{SETUP}" s2'
+        return f"unreachable (HTTP {e.status})"
+    except HttpError as e:
+        if e.status == 429:
+            return "rate-limited (429)" + ("" if key else ": a free key is strongly recommended")
+        return f"unreachable ({reason(e)})"
+    return "reachable"
+
+
 def cmd_search(args, deps):
+    deps.s2.retries = FOREGROUND_RETRIES
     show(deps.s2.search(args.query, limit=args.limit, fields=SHOW_FIELDS))
     return 0
 
 
 def cmd_lookup(args, deps):
+    deps.s2.retries = FOREGROUND_RETRIES
     for given, paper in zip(args.ids, deps.s2.batch(args.ids, fields=SHOW_FIELDS)):
         if paper:
             show([paper])
@@ -462,14 +496,26 @@ def main(argv=None, deps=None):
         print(f"spec error: {e}")
         return 2
     except AuthError as e:
-        if "semanticscholar" in e.url:
+        if host(e.url) == S2_HOST:
+            if not s2_key_set(deps):
+                print(f"Semantic Scholar refused the request (HTTP {e.status}).")
+                return 4
             print(f'Semantic Scholar rejected the S2 key. Replace it with: python3 "{SETUP}" s2 '
                   "(or unset S2_API_KEY).")
             return 3
         return key_problem(rejected=True)
     except HttpError as e:
-        print(f"service error: HTTP {e.status} from {e.url}: {e.body[:200]!r}")
+        print(service_problem(e, deps))
         return 4
+
+
+def service_problem(e, deps):
+    """What to tell the user about an HttpError that stopped a command."""
+    if host(e.url) == S2_HOST and e.status == 429:
+        if not s2_key_set(deps):
+            return S2_RATE_LIMITED
+        return "Semantic Scholar is rate-limiting requests (HTTP 429): wait a few minutes and run the step again."
+    return f"service error: HTTP {e.status} from {e.url}: {e.body[:200]!r}"
 
 
 if __name__ == "__main__":

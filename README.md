@@ -25,8 +25,9 @@ claude plugin install paper-sift@paper-sift
 ```
 
 You need Python 3.9+ and a [TypeSafe API key](https://console.typesafe.ai/). A free
-[Semantic Scholar API key](https://www.semanticscholar.org/product/api) is optional and helps above
-~1,000 papers.
+[Semantic Scholar API key](https://www.semanticscholar.org/product/api) is strongly recommended: without
+one, Semantic Scholar often rate-limits requests (HTTP 429) for many minutes. It is saved the same way
+as the TypeSafe key (below), with `setup_key.py s2`.
 
 ## Keys
 

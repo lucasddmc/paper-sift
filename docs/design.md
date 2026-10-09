@@ -37,8 +37,10 @@ The skill `/paper-sift:survey [topic]` drives the flow. Claude talks to the user
 language; everything sent to Jev is in English, its strongest language.
 
 1. **Preflight.** `survey.py doctor` checks Python (≥ 3.9), the TypeSafe key (present, and accepted
-   by one minimal call), the optional S2 key, and the PDF dependency. If the TypeSafe key is missing
-   or invalid, Claude shows the command to run in the user's terminal (§10) and waits.
+   by one minimal call), the S2 key (strongly recommended) and one S2 request (reachable or
+   rate-limited), and the PDF dependency. If S2 is rate-limiting requests without a key, Claude asks
+   for the free key before collecting. If the TypeSafe key is missing or invalid, Claude shows the
+   command to run in the user's terminal (§10) and waits.
 2. **Topic.** Without a topic argument, Claude asks: *"What topic should this survey cover?"*
 3. **Framing.** One message, at most three follow-ups: the user's background relative to the topic,
    papers they already know (optional), and the pool size (default 800, §5). A year range is optional.
@@ -217,7 +219,8 @@ scored paper and its probabilities.
 ## 10. Keys
 
 - **TypeSafe** (required): `TYPESAFE_API_KEY`, else `~/.config/typesafe/key`.
-- **Semantic Scholar** (optional, recommended above ~1,000 papers): `S2_API_KEY`, else
+- **Semantic Scholar** (optional but strongly recommended: on 2026-10-09 the public API answered 429
+  to every request without a key for over 30 minutes): `S2_API_KEY`, else
   `~/.config/semanticscholar/key`, sent as `x-api-key`.
 
 When a key is missing, Claude shows one command for the user to run **in their own terminal**, with
@@ -247,8 +250,8 @@ MCP servers, but not the Bash commands a skill runs.
 - 429, 5xx and 529 are retried with exponential backoff (cap 60 s). 401 stops with "invalid key".
   422 prints the field the API rejected and stops. Failed per-paper calls are recorded and retried on
   the next run.
-- S2 without a key returns 429 often; backoff absorbs it at the cost of time. OpenAlex is called
-  serially.
+- S2 without a key often returns 429. `collect` retries 10 times with backoff; `search` and `lookup`
+  stop after 3 retries (about 14 s) and say how to get the free key. OpenAlex is called serially.
 - Every stage writes to disk as it goes and resumes when re-run.
 - The skill pre-approves only `Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*)` through
   `allowed-tools`. Stages that may exceed ten minutes run in the background.
