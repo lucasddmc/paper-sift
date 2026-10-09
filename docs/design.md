@@ -58,8 +58,11 @@ language; everything sent to Jev is in English, its strongest language.
    questions (§8).
 9. **Report.** `survey.py report` writes `report.md`; `survey.py export` writes `.bib` and `.csv`
    (§9). Claude summarizes the top of the list and offers policy changes. Ranking fields
-   (`final_rank`, `start_here`, `final_top`) re-run the report for free; other policy edits
-   (`gate`, `priority`, `policy.fulltext`) need paid re-runs, asked first.
+   (`final_rank`, `start_here`, `final_top`) re-run `report` and `export` for free; other policy
+   edits (`gate`, `priority`, `policy.fulltext`) need paid re-runs, asked first. Editing an abstract
+   question or `tau` needs `score`, then `fulltext`. `report` and `export` refuse to run while the
+   full-text stage is out of date: when the current scores and policy select other papers than it
+   read, or when a full-text question changed since a paper was read.
 
 ## 4. The spec
 

@@ -132,9 +132,11 @@ the "Start here" papers, one line per section, and the "Check by hand" section. 
 `report.md`, `reading-list.bib` and `scored.csv`.
 
 Then offer changes. Free changes (no inference): edit `final_rank`, `start_here` or `final_top` in
-`policy` in `spec.json`, run `survey.py check` and `survey.py report`. Changing `gate`, `priority`,
-or `policy.fulltext` needs `survey.py fulltext` again (costs for newly selected papers). Editing
-any full-text question re-reads every selected paper. Editing an abstract question re-asks only
-that question in `score`. Editing `area` or `model` makes both re-run. Changing seeds, queries,
-years or `pool_size` needs `survey.py collect <dir> --fresh`, then `score` and `fulltext` again.
-Before any paid re-run, ask with the cost from `survey.py estimate`.
+`policy` in `spec.json`, run `survey.py check`, then `survey.py report` and `survey.py export`.
+Changing `gate`, `priority` or `policy.fulltext` needs `survey.py fulltext` again (it reads only newly
+selected papers). Editing an abstract question or `tau`: run `survey.py score` (it asks only the
+edited question again), then `survey.py fulltext`. Editing any full-text question makes `fulltext`
+re-read every selected paper. Editing `area` or `model` makes `score` and `fulltext` ask everything
+again. Changing seeds, queries, years or `pool_size` needs `survey.py collect <dir> --fresh`, then
+`score` and `fulltext` again. While the full-text stage is out of date, `report` and `export` stop
+and say so: run `fulltext`. Before any paid re-run, ask with the cost from `survey.py estimate`.

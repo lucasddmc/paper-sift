@@ -33,7 +33,7 @@ from paper_sift.net import AuthError, HttpError  # noqa: E402
 from paper_sift.pdftext import extract as pdf_extract  # noqa: E402
 from paper_sift.ranking import Policy, records  # noqa: E402
 from paper_sift.s2 import S2  # noqa: E402
-from paper_sift.spec import SpecError, load  # noqa: E402
+from paper_sift.spec import SpecError, load, question_hash  # noqa: E402
 
 SETUP = pathlib.Path(__file__).resolve().parent / "setup_key.py"
 SHOW_FIELDS = "paperId,title,year,externalIds,citationCount"
@@ -399,8 +399,21 @@ def build(survey, spec):
 
 
 def _ready_for_report(survey, spec):
-    if spec["fulltext_questions"] and not survey.exists("fulltext"):
+    """False, after saying why, when the full-text stage has not run or is out of date: the current scores
+    and policy select other papers, or a paper was read with questions edited since."""
+    if not spec["fulltext_questions"]:
+        return True
+    ft = survey.read("fulltext")
+    if ft is None:
         print("run fulltext first")
+        return False
+    data, _, recs = scored_records(survey, spec)
+    selected = {r["paperId"] for r in Policy(spec).for_fulltext(recs, {s["paperId"] for s in data["seeds"]})}
+    hashes = {name: question_hash(q) for name, q in spec["fulltext_questions"].items()}
+    results = [ft["papers"].get(pid, {}) for pid in ft["selected"]]
+    if selected != set(ft["selected"]) or any(r.get("status") == "read" and r.get("hashes") != hashes
+                                              for r in results):
+        print(f"full-text stage out of date: run `survey.py fulltext {survey.dir}`")
         return False
     return True
 

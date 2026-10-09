@@ -162,6 +162,46 @@ class CliTest(unittest.TestCase):
         self.assertIn("@misc", (self.dir / "reading-list.bib").read_text())
         self.assertIn("paperId,title", (self.dir / "scored.csv").read_text())
 
+    def edit_spec(self, change):
+        spec = json.loads((self.dir / "spec.json").read_text())
+        change(spec)
+        (self.dir / "spec.json").write_text(json.dumps(spec))
+
+    def test_report_refuses_a_full_text_selection_the_scores_no_longer_give(self):
+        d = str(self.dir)
+        for command in ("collect", "score", "fulltext", "report"):
+            self.assertEqual(self.cli(command, d)[0], 0)
+        self.edit_spec(lambda spec: spec["questions"]["topic"].update(
+            true="The main subject is a sampler for diffusion models"))
+
+        def edited_ask(state, questions):  # Jev answers the edited question differently
+            out = fake_ask(state, questions)
+            if "topic" in questions:
+                text = f"{state['paper']['title']} {state['paper']['abstract']}".lower()
+                out["answers"]["topic"] = 0.9 if "sampler" in text else 0.1
+            return out
+
+        self.deps.ask = edited_ask
+        self.assertEqual(self.cli("score", d)[0], 0)
+        for command in ("report", "export"):
+            code, out = self.cli(command, d)
+            self.assertEqual(code, 2, out)
+            self.assertIn(f"full-text stage out of date: run `survey.py fulltext {self.dir}`", out)
+        self.assertEqual(self.cli("fulltext", d)[0], 0)
+        code, out = self.cli("report", d)
+        self.assertEqual(code, 0, out)
+
+    def test_report_refuses_answers_to_edited_full_text_questions(self):
+        d = str(self.dir)
+        for command in ("collect", "score", "fulltext"):
+            self.assertEqual(self.cli(command, d)[0], 0)
+        self.edit_spec(lambda spec: spec["fulltext_questions"]["didactic"].update(true="Clear and illustrated"))
+        code, out = self.cli("report", d)
+        self.assertEqual(code, 2, out)
+        self.assertIn("full-text stage out of date", out)
+        self.assertEqual(self.cli("fulltext", d)[0], 0)
+        self.assertEqual(self.cli("report", d)[0], 0)
+
     def test_invalid_spec_exits_2(self):
         (self.dir / "spec.json").write_text("{}")
         code, out = self.cli("check", str(self.dir))
