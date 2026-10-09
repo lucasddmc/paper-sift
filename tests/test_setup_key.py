@@ -10,9 +10,11 @@ from paper_sift import keys
 from paper_sift.net import AuthError, HttpError
 
 
-def run(argv, entered, checker):
+def run(argv, entered, checker, existing=None):
     out = io.StringIO()
     with tempfile.TemporaryDirectory() as home:
+        if existing is not None and argv and argv[0] in keys.SERVICES:
+            keys.save_key(argv[0], existing, home=home)
         with contextlib.redirect_stdout(out):
             code = setup_key.main(argv, getpass_fn=lambda prompt: entered, checker=checker, home=home)
         path = keys.key_path(argv[0], home) if argv and argv[0] in keys.SERVICES else None
@@ -31,9 +33,16 @@ class SetupKeyTest(unittest.TestCase):
     def test_rejected_key_exits_1(self):
         def reject(service, key):
             raise AuthError(401, b"", "u")
-        code, out, _, _ = run(["typesafe"], "bad", reject)
-        self.assertEqual(code, 1)
+        code, out, saved, _ = run(["typesafe"], "bad", reject)
+        self.assertEqual((code, saved), (1, None))
         self.assertIn("rejected", out)
+
+    def test_rejected_key_keeps_the_previous_one(self):
+        def reject(service, key):
+            raise AuthError(401, b"", "u")
+        code, out, saved, _ = run(["typesafe"], "bad", reject, existing="old-key")
+        self.assertEqual((code, saved), (1, "old-key"))
+        self.assertIn("previous key was kept", out)
 
     def test_unverifiable_key_is_kept(self):
         def offline(service, key):

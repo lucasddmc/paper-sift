@@ -34,15 +34,28 @@ def main(argv=None, getpass_fn=getpass.getpass, checker=check, home=None):
     if not value:
         print("No key entered; nothing was saved.")
         return 1
-    path = keys.save_key(service, value, home=home)
+
+    # Check if a previous key exists
+    path = keys.key_path(service, home=home)
+    previous_exists = path.exists()
+
+    # Check the key BEFORE saving
     try:
         who = checker(service, value)
     except AuthError:
-        print(f"Saved to {path}, but the service rejected the key. Run this again with a valid key.")
+        msg = "The service rejected the key; nothing was saved."
+        if previous_exists:
+            msg += " Your previous key was kept."
+        print(msg)
         return 1
     except HttpError as e:
+        # For network errors, save the key anyway
+        path = keys.save_key(service, value, home=home)
         print(f"Saved to {path}. Could not verify it now (HTTP {e.status}); it will be checked on first use.")
         return 0
+
+    # If check succeeded, save the key
+    path = keys.save_key(service, value, home=home)
     print(f"OK: key saved to {path} and accepted by {who}.")
     return 0
 
