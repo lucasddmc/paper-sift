@@ -1,5 +1,4 @@
 import threading
-import time
 import unittest
 
 import helpers  # noqa: F401
@@ -98,21 +97,21 @@ class ScreenTest(unittest.TestCase):
         asks_made = []
 
         def ask_counter(state, questions):
-            asks_made.append(state["paper"]["paperId"])
+            asks_made.append(state["paper"]["abstract"])
             return {"answers": {n: 0.7 for n in questions}, "tokens": 10, "model": "m"}
 
         def sink_raises_first(row):
             if row.get("paperId") == "0":
                 raise OSError("sink failed on first row")
 
-        work = [({"paperId": str(i), "abstract": f"paper {i}"}, Q) for i in range(10)]
+        work = [({"paperId": str(i), "abstract": f"abstract_{i}"}, Q) for i in range(10)]
 
         with self.assertRaises(OSError):
             screen.score(work, SPEC, ask_counter, sink=sink_raises_first, workers=1, log=lambda m: None)
 
-        # With cancellation, should ask at most 3 items (1st asked/completes/sinks/raises, 2nd may be queued/started)
+        # With cancellation, should ask at most 2 items (1st asked/completes/sinks/raises, maybe 2nd queued/started)
         # Without cancellation, all 10 would be asked before shutdown completes
-        self.assertLessEqual(len(asks_made), 3, f"too many asks made: {len(asks_made)} (asks: {asks_made})")
+        self.assertLessEqual(len(asks_made), 2, f"too many asks made: {len(asks_made)} (asks: {asks_made})")
 
     def test_cache_key_round_trip_with_context(self):
         """Verify question hash and current() work correctly with _context."""
