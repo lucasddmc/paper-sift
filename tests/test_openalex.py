@@ -29,3 +29,27 @@ class OpenAlexTest(unittest.TestCase):
     def test_http_failure_returns_none(self):
         t = transport_with([], status=400)
         self.assertIsNone(openalex.find_abstract("x", transport=t, sleep=lambda s: None))
+
+    def test_cjk_query_against_unrelated_cjk_result_returns_none(self):
+        # "深度学习综述" (deep learning survey) should not match unrelated CJK work
+        t = transport_with([{"title": "机器学习基础", "abstract_inverted_index": INV}])
+        self.assertIsNone(openalex.find_abstract("深度学习综述", transport=t, sleep=lambda s: None))
+
+    def test_blank_title_returns_none_without_request(self):
+        # Blank title should return None immediately without calling transport
+        def transport_that_fails(method, url, headers, body, timeout):
+            raise AssertionError("transport should not be called for blank title")
+        self.assertIsNone(openalex.find_abstract("", transport=transport_that_fails, sleep=lambda s: None))
+        self.assertIsNone(openalex.find_abstract("   ", transport=transport_that_fails, sleep=lambda s: None))
+
+    def test_diacritics_match_across_normalization(self):
+        # "Schrödinger" (with diacritic) should match "Schrodinger" (without diacritic)
+        t = transport_with([{"title": "Schrodinger Equation Solvers", "abstract_inverted_index": INV}])
+        self.assertEqual(openalex.find_abstract("Schrödinger equation solvers", transport=t, sleep=lambda s: None),
+                         "Diffusion models work.")
+
+    def test_html_response_returns_none(self):
+        # Non-JSON response should be gracefully handled
+        def transport_html(method, url, headers, body, timeout):
+            return 200, b"<html>not json</html>"
+        self.assertIsNone(openalex.find_abstract("test", transport=transport_html, sleep=lambda s: None))
