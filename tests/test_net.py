@@ -1,9 +1,14 @@
 import http.client
+import ssl
+import tempfile
 import unittest
+import urllib.error
 
 import helpers  # noqa: F401
-from paper_sift import USER_AGENT
+from paper_sift import USER_AGENT, store
 from paper_sift.net import AuthError, HttpError, request, request_json
+
+CERT_MESSAGE = b"certificate verification failed (python.org builds: run Install Certificates.command)"
 
 
 def scripted(*responses):
@@ -71,6 +76,32 @@ class NetTest(unittest.TestCase):
         self.assertNotIn("secret", repr(e))
         self.assertIsNone(e.__context__)  # the original error, which quotes the value, is not chained
         self.assertEqual(len(t.calls), 1)
+
+    def test_lone_surrogates_become_replacement_characters(self):
+        body = b'{"title": "a\\ud800b", "list": ["\\udfff"], "\\ud800key": 1, "pair": "\\ud83d\\ude00"}'
+        got = request_json("GET", "https://x.test", transport=scripted((200, body)))
+        self.assertEqual(got, {"title": "a\ufffdb", "list": ["\ufffd"], "\ufffdkey": 1, "pair": "\U0001F600"})
+        with tempfile.TemporaryDirectory() as d:
+            store.Survey(d).write("pool", got)  # raised UnicodeEncodeError before
+
+    def test_invalid_json_becomes_http_error(self):
+        for body in (b"<html>not json</html>", b'{"a": "\xff"}'):
+            with self.subTest(body=body):
+                with self.assertRaises(HttpError) as ctx:
+                    request_json("GET", "https://x.test/j", transport=scripted((200, body)))
+                e = ctx.exception
+                self.assertEqual((e.status, e.body, e.url), (0, b"invalid JSON response", "https://x.test/j"))
+                self.assertIsNone(e.__context__)  # the decoder error holds the whole reply; it is not chained
+
+    def test_certificate_errors_fail_at_once(self):
+        cert = ssl.SSLCertVerificationError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+        for error in (urllib.error.URLError(cert), cert):
+            with self.subTest(error=type(error).__name__):
+                t = scripted(error)
+                with self.assertRaises(HttpError) as ctx:
+                    request("GET", "https://x.test", transport=t, sleep=lambda s: self.fail("not retried"))
+                self.assertEqual((ctx.exception.status, ctx.exception.body), (0, CERT_MESSAGE))
+                self.assertEqual(len(t.calls), 1)
 
     def test_retries_truncated_responses(self):
         waits = []

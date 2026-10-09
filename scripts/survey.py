@@ -73,6 +73,12 @@ def malformed_key(e):
     return 3
 
 
+def reason(e):
+    """Why a request failed. For status 0 the body is net.py's own text (a network error, an invalid
+    request, a bad certificate or reply), never a key or a server reply; otherwise the HTTP status."""
+    return e.body.decode("utf-8", "replace")[:150] if e.status == 0 else f"HTTP {e.status}"
+
+
 def show(papers):
     for p in papers:
         ids = p.get("externalIds") or {}
@@ -98,12 +104,12 @@ def cmd_doctor(args, deps):
         print(f'setup: python3 "{SETUP}" typesafe')
     else:
         try:
-            print(f"typesafe key: ok ({jev.check_key(key, transport=deps.transport)})")
+            print(f"typesafe key: ok ({jev.check_key(key, transport=deps.transport, sleep=deps.sleep)})")
         except AuthError:
             print("typesafe key: rejected by TypeSafe")
             print(f'setup: python3 "{SETUP}" typesafe')
         except HttpError as e:
-            print(f"typesafe key: present, not verified now (HTTP {e.status})")
+            print(f"typesafe key: present, not verified now ({reason(e)})")
     if keys.get_key("s2"):
         print("s2 key: present")
     else:

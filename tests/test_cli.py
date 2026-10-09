@@ -3,8 +3,10 @@ import io
 import json
 import pathlib
 import shutil
+import ssl
 import tempfile
 import unittest
+import urllib.error
 from unittest import mock
 
 import helpers
@@ -194,6 +196,29 @@ class CliTest(unittest.TestCase):
         code, out = self.cli("collect", str(self.dir))
         self.assertEqual(code, 4, out)
         self.assertNotIn("s2-secret", out)
+
+    def test_doctor_prints_the_network_reason_instead_of_http_0(self):
+        cert = urllib.error.URLError(ssl.SSLCertVerificationError(1, "certificate verify failed"))
+        refused = urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+        for error, expected in ((cert, "certificate verification failed (python.org builds: run Install "
+                                       "Certificates.command)"),
+                                (refused, "Connection refused")):
+            with self.subTest(expected=expected):
+                waits = []
+
+                def offline(method, url, headers, body, timeout):
+                    raise error
+
+                self.deps.transport, self.deps.sleep = offline, waits.append
+                with mock.patch.object(keys, "get_key",
+                                       side_effect=lambda service, **kw: "tsk-secret" if service == "typesafe" else None):
+                    code, out = self.cli("doctor")
+                line = next(x for x in out.splitlines() if x.startswith("typesafe key:"))
+                self.assertIn("typesafe key: present, not verified now (", line)
+                self.assertIn(expected, line)
+                self.assertNotIn("HTTP 0", out)
+                self.assertNotIn("tsk-secret", out)
+        self.assertEqual(waits, [2.0, 4.0])  # the refused connection was retried with the fake sleep
 
     def test_collect_with_unresolvable_seeds_exits_2(self):
         # Fake S2 that returns None for all batch calls

@@ -5,6 +5,8 @@ tests pass fakes, production uses urllib.
 """
 import http.client
 import json
+import re
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -12,7 +14,11 @@ import urllib.request
 from . import USER_AGENT
 
 RETRY_STATUSES = {429, 500, 502, 503, 504, 529}
+# Bodies of the HttpError(0, ...) raised here: our own words, never a key or a server reply.
 INVALID_REQUEST = b"invalid request (header or URL)"
+CERT_FAILED = b"certificate verification failed (python.org builds: run Install Certificates.command)"
+INVALID_JSON = b"invalid JSON response"
+_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 class HttpError(Exception):
@@ -45,15 +51,18 @@ def request(method, url, *, headers=None, payload=None, transport=None, retries=
         hdrs["Content-Type"] = "application/json"
     wait = 2.0
     for attempt in range(retries + 1):
-        invalid = False
+        failure = None
         try:
             status, data = transport(method, url, hdrs, body, timeout)
-        except ValueError:  # an invalid header value or URL; its message can quote a key, so it is dropped
-            invalid = True
-        except (OSError, http.client.HTTPException) as e:  # URLError, timeouts, refused connections, truncated or malformed responses
-            status, data = None, repr(e).encode()
-        if invalid:  # raised here, outside the handler, so the original error is not chained
-            raise HttpError(0, INVALID_REQUEST, url)
+        except (OSError, ValueError, http.client.HTTPException) as e:
+            if _certificate_error(e):  # permanent until certificates are installed: retrying cannot help
+                failure = CERT_FAILED
+            elif isinstance(e, ValueError):  # an invalid header value or URL; its message can quote a key
+                failure = INVALID_REQUEST
+            else:  # URLError, timeouts, refused connections, truncated or malformed responses
+                status, data = None, repr(e).encode()
+        if failure:  # raised here, outside the handler, so the original error is not chained
+            raise HttpError(0, failure, url)
         if status is not None and 200 <= status < 300:
             return data
         if status in (401, 403):
@@ -66,5 +75,28 @@ def request(method, url, *, headers=None, payload=None, transport=None, retries=
         wait *= 2
 
 
+def _certificate_error(e):
+    return (isinstance(e, ssl.SSLCertVerificationError)
+            or isinstance(getattr(e, "reason", None), ssl.SSLCertVerificationError))
+
+
+def _replace_surrogates(obj):
+    """JSON may carry lone surrogates ("\\ud800"), which UTF-8 cannot encode: they become U+FFFD in every
+    string, keys included."""
+    if isinstance(obj, str):
+        return _SURROGATE.sub("\ufffd", obj)
+    if isinstance(obj, list):
+        return [_replace_surrogates(x) for x in obj]
+    if isinstance(obj, dict):
+        return {_replace_surrogates(k): _replace_surrogates(v) for k, v in obj.items()}
+    return obj
+
+
 def request_json(method, url, **kwargs):
-    return json.loads(request(method, url, **kwargs))
+    """The parsed JSON reply. HttpError(0, "invalid JSON response") when it does not parse."""
+    data = request(method, url, **kwargs)
+    try:
+        return _replace_surrogates(json.loads(data))
+    except ValueError:  # not JSON, or not UTF-8
+        pass
+    raise HttpError(0, INVALID_JSON, url)  # outside the handler: the decoder error holds the whole reply
