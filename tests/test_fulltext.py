@@ -1,5 +1,6 @@
 import pathlib
 import tempfile
+import time
 import unittest
 
 import helpers  # noqa: F401
@@ -21,6 +22,14 @@ class FakeS2:
 
 def transport(method, url, headers, body, timeout):
     return (200, b"<html>") if url.endswith("broken.pdf") else (200, PDF)
+
+
+def recording_transport(captured_urls):
+    """Transport that records the URL called and returns PDF."""
+    def _transport(method, url, headers, body, timeout):
+        captured_urls.append(url)
+        return (200, PDF)
+    return _transport
 
 
 class FulltextTest(unittest.TestCase):
@@ -77,3 +86,56 @@ class FulltextTest(unittest.TestCase):
         self.assertTrue(res["ok"]["cut_references"])
         self.assertEqual(res["ok"]["authors"], ["Ada Lovelace"])
         self.assertEqual(len(asked), 1)
+
+    def test_download_rejects_url_without_scheme(self):
+        with tempfile.TemporaryDirectory() as d:
+            result = fulltext.download("www.x.invalid/a.pdf", pathlib.Path(d) / "x.pdf",
+                                       transport=lambda *_: (_ for _ in ()).throw(AssertionError("should not request")),
+                                       sleep=lambda s: None)
+            self.assertIsNone(result)
+
+    def test_download_rejects_non_http_scheme(self):
+        with tempfile.TemporaryDirectory() as d:
+            result = fulltext.download("ftp://x.invalid/a.pdf", pathlib.Path(d) / "x.pdf",
+                                       transport=lambda *_: (_ for _ in ()).throw(AssertionError("should not request")),
+                                       sleep=lambda s: None)
+            self.assertIsNone(result)
+
+    def test_download_encodes_accented_url(self):
+        with tempfile.TemporaryDirectory() as d:
+            captured = []
+            result = fulltext.download("https://x.invalid/Título.pdf", pathlib.Path(d) / "x.pdf",
+                                       transport=recording_transport(captured), sleep=lambda s: None)
+            self.assertEqual(result.read_bytes(), PDF)
+            self.assertIn("%C3%AD", captured[0])  # í encoded
+
+    def test_run_handles_ask_exception_per_paper(self):
+        recs = [{"paperId": "error", "title": "Error Paper"}, {"paperId": "ok", "title": "OK Paper"}]
+
+        def ask_with_error(state, questions):
+            if state["paper"]["title"] == "Error Paper":
+                raise KeyError("malformed response")
+            return {"answers": {"didactic": 0.7}, "tokens": 5, "model": "m"}
+
+        with tempfile.TemporaryDirectory() as d:
+            res = fulltext.run(recs, SPEC, FakeS2(), ask_with_error, d, {},
+                               extract=lambda path: LONG,
+                               transport=transport, sleep=lambda s: None, log=lambda m: None)
+        self.assertEqual(res["error"]["status"], "error")
+        self.assertEqual(res["ok"]["status"], "read")
+        self.assertEqual(res["error"]["error"], "KeyError")
+
+    def test_run_raises_import_error_from_extract(self):
+        recs = [{"paperId": "ok"}]
+
+        def ask(state, questions):
+            return {"answers": {"didactic": 0.7}, "tokens": 5, "model": "m"}
+
+        def extract_missing_pypdf(path):
+            raise ImportError("No module named 'pypdf'")
+
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ImportError):
+                fulltext.run(recs, SPEC, FakeS2(), ask, d, {},
+                             extract=extract_missing_pypdf,
+                             transport=transport, sleep=lambda s: None, log=lambda m: None)

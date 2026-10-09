@@ -2,6 +2,7 @@
 The text goes only to Jev; nothing here prints it."""
 import pathlib
 import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
 from .net import AuthError, HttpError, request
@@ -30,8 +31,15 @@ def download(url, dest, *, transport=None, sleep=time.sleep):
     if dest.exists() and dest.read_bytes()[:4] == b"%PDF":
         return dest
     try:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return None
+        url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc,
+                                       urllib.parse.quote(parsed.path, safe=":/?#[]@!$&'()*+,;=%~"),
+                                       urllib.parse.quote(parsed.query, safe=":/?#[]@!$&'()*+,;=%~"),
+                                       parsed.fragment))
         data = request("GET", url, transport=transport, sleep=sleep, retries=2, timeout=90)
-    except HttpError:
+    except (HttpError, ValueError):
         return None
     if data[:4] != b"%PDF":
         return None
@@ -81,6 +89,8 @@ def run(selected, spec, s2, ask, cache, done, *, extract, transport=None, sleep=
             continue
         try:
             body, was_cut, total = prepare(extract(got))
+        except ImportError:
+            raise
         except Exception as e:  # broken or encrypted PDF
             results[pid] = {**base, "status": "no_text", "error": repr(e)[:200]}
             continue
@@ -91,7 +101,13 @@ def run(selected, spec, s2, ask, cache, done, *, extract, transport=None, sleep=
 
     def one(item):
         pid, (r, body, base, was_cut, total) = item
-        out = ask_text(r, body, spec, ask)
+        try:
+            out = ask_text(r, body, spec, ask)
+        except AuthError:
+            raise
+        except Exception as e:
+            return pid, {**base, "status": "error", "error": type(e).__name__, "cut_references": was_cut,
+                         "chars_pdf": total}
         return pid, {**base, "status": "error" if "error" in out else "read", "cut_references": was_cut,
                      "chars_pdf": total, **out}
 

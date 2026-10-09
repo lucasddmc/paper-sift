@@ -3,7 +3,7 @@ import re
 
 MAX_CHARS = 90_000  # about 25k tokens, inside Jev's 32k state limit
 MIN_CHARS = 2_000   # less usually means a scanned PDF or a failed extraction
-_REFERENCES = re.compile(r"\n\s*(?:References|REFERENCES|Bibliography|BIBLIOGRAPHY)\s*\n")
+_REFERENCES = re.compile(r"^[ \t\r]*(?:References|REFERENCES|Bibliography|BIBLIOGRAPHY)[ \t\r]*$", re.M)
 
 
 def cut_references(text):
