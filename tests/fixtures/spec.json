@@ -1,0 +1,25 @@
+{
+  "slug": "diffusion-models",
+  "area": "We are building the reading list of a newcomer to diffusion models for image generation. The area covers denoising diffusion and score-based models, samplers, guidance and conditioning, latent diffusion, evaluation, and image editing. The reader knows deep learning, VAEs and GANs, but not score-based models.",
+  "seeds": [{"id": "arXiv:2006.11239", "title": "Denoising Diffusion Probabilistic Models", "why": "foundational"}],
+  "queries": ["diffusion models image generation"],
+  "pool_size": 100,
+  "questions": {
+    "topic": {"instructions": "Is `paper` mainly about diffusion or score-based generative models, in the sense described in `area`?", "true": "The main subject is a diffusion or score-based model", "false": "The paper only uses a diffusion model as a tool, or is about another kind of model"},
+    "survey": {"instructions": "Is `paper` a survey, tutorial, taxonomy or position paper?", "true": "It surveys or teaches an area", "false": "It presents one new method"},
+    "sub_sampling": {"label": "Sampling", "instructions": "Is `paper` about sampling from diffusion models faster or better?", "true": "Sampling is a main contribution", "false": "Sampling is not a main contribution"},
+    "sub_guidance": {"label": "Guidance and conditioning", "instructions": "Is `paper` about guiding or conditioning diffusion models?", "true": "Guidance or conditioning is a main contribution", "false": "Guidance or conditioning is not a main contribution"}
+  },
+  "fulltext_questions": {
+    "didactic": {"instructions": "Reading the full text of `paper`: could a newcomer with the background described in `area` learn the core concepts from it?", "true": "Clear and self-contained", "false": "Assumes the reader knows the area"},
+    "map": {"instructions": "Does `paper` give a map of the area: a taxonomy or a comparison of many methods?", "true": "An overview of many methods", "false": "One method or setting"}
+  },
+  "policy": {
+    "gate": "topic",
+    "priority": "p.topic * importance",
+    "fulltext": {"top": 3, "per_subtopic": 1, "include_seeds": true},
+    "start_here": "(survey or map) and didactic",
+    "final_rank": "p.didactic",
+    "final_top": 5
+  }
+}
