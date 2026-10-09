@@ -1,4 +1,5 @@
 """Load and validate a survey's spec.json."""
+import copy
 import hashlib
 import json
 import pathlib
@@ -26,7 +27,8 @@ class SpecError(ValueError):
 
 
 def question_hash(q):
-    text = "\x1f".join((q["instructions"], q["true"], q["false"]))
+    context = q.get("_context", "")
+    text = "\x1f".join((q["instructions"], q["true"], q["false"], context))
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
@@ -45,6 +47,8 @@ def _check_questions(questions, where):
     if not isinstance(questions, dict):
         raise SpecError(f"{where} must be an object")
     for name, q in questions.items():
+        if not isinstance(q, dict):
+            raise SpecError(f"{where}.{name} must be an object")
         if not NAME.match(name) or name == "p" or name in VARIABLES:
             raise SpecError(f"{where}: invalid name {name!r} (lowercase letters, digits and _; "
                             f"not 'p' or {', '.join(VARIABLES)})")
@@ -54,7 +58,12 @@ def _check_questions(questions, where):
 
 
 def validate(raw):
-    spec = _merge(DEFAULTS, raw)
+    # Guard raw as dict
+    if not isinstance(raw, dict):
+        raise SpecError("spec must be an object")
+    # Deep copy to avoid sharing mutable state
+    raw = copy.deepcopy(raw)
+    spec = _merge(copy.deepcopy(DEFAULTS), raw)
     if spec["version"] != 1:
         raise SpecError("version must be 1")
     if spec["recipe"] not in RECIPES:
@@ -79,6 +88,9 @@ def validate(raw):
     if years is not None and not (isinstance(years, list) and len(years) == 2
                                   and all(isinstance(y, int) for y in years) and years[0] <= years[1]):
         raise SpecError("years must be null or [first, last]")
+    # Guard sources as dict
+    if not isinstance(spec.get("sources"), dict):
+        raise SpecError("sources must be an object")
     per_query = spec["sources"].get("search_per_query")
     if isinstance(per_query, bool) or not isinstance(per_query, int) or not 0 <= per_query <= 100:
         raise SpecError("sources.search_per_query must be an integer from 0 to 100")
@@ -91,13 +103,22 @@ def validate(raw):
     clash = set(spec["questions"]) & set(spec["fulltext_questions"])
     if clash:
         raise SpecError(f"names used in both question sets: {sorted(clash)}")
+    # Guard policy as dict
+    if not isinstance(spec.get("policy"), dict):
+        raise SpecError("policy must be an object")
     policy = spec["policy"]
+    # Guard policy.fulltext as dict
+    if not isinstance(policy.get("fulltext"), dict):
+        raise SpecError("policy.fulltext must be an object")
     abstract = list(spec["questions"])
     everything = abstract + list(spec["fulltext_questions"])
     for key, facts in (("gate", abstract), ("priority", abstract), ("start_here", everything),
                        ("final_rank", everything)):
+        expr_str = policy.get(key)
+        if not isinstance(expr_str, str):
+            raise SpecError(f"policy.{key} must be a string")
         try:
-            Expr(policy[key], facts)
+            Expr(expr_str, facts)
         except PolicyError as e:
             raise SpecError(f"policy.{key}: {e}") from None
     for key in ("top", "per_subtopic"):
@@ -107,13 +128,21 @@ def validate(raw):
     final_top = policy["final_top"]
     if isinstance(final_top, bool) or not isinstance(final_top, int) or final_top < 1:
         raise SpecError("policy.final_top must be a positive integer")
+
+    # Finding 3: Add context hash to all questions
+    context = hashlib.sha256((spec["area"] + "\x1f" + spec["model"]).encode()).hexdigest()[:12]
+    for q in spec["questions"].values():
+        q["_context"] = context
+    for q in spec["fulltext_questions"].values():
+        q["_context"] = context
+
     return spec
 
 
 def load(path):
     path = pathlib.Path(path)
     try:
-        raw = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as e:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
         raise SpecError(f"cannot read {path}: {e}") from None
     return validate(raw)

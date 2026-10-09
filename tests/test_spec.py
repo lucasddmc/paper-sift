@@ -69,3 +69,60 @@ class SpecTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(specmod.SpecError):
                 specmod.load(pathlib.Path(d) / "missing.json")
+
+    def test_malformed_specs_raise_specerror(self):
+        """Finding 1: Non-SpecError exceptions on malformed specs must be caught."""
+        test_cases = [
+            ([], "JSON list at top level"),
+            (valid(questions={"topic": "plain string"}), "question as string"),
+            (valid(policy={"gate": None, "priority": "p.topic * importance"}), "gate: null"),
+            (valid(policy={"gate": "topic", "priority": "p.topic * importance", "fulltext": None}), "fulltext: null"),
+            (valid(sources=None), "sources: null"),
+            (valid(policy="x"), "policy: string"),
+        ]
+        for raw, desc in test_cases:
+            with self.subTest(case=desc), self.assertRaises(specmod.SpecError):
+                specmod.validate(raw)
+
+    def test_load_with_invalid_utf8_raises_specerror(self):
+        """Finding 1: Invalid UTF-8 in spec file must raise SpecError."""
+        with tempfile.TemporaryDirectory() as d:
+            spec_path = pathlib.Path(d) / "spec.json"
+            spec_path.write_bytes(b"\x80\x81\x82")  # Invalid UTF-8
+            with self.assertRaises(specmod.SpecError):
+                specmod.load(spec_path)
+
+    def test_validate_does_not_share_mutable_state_with_defaults(self):
+        """Finding 2: Returned spec must be a deep copy, not sharing state with DEFAULTS."""
+        s1 = specmod.validate(copy.deepcopy(FIXTURE))
+        s1["sources"]["citations"] = False
+        s1["policy"]["fulltext"]["top"] = 999
+
+        # Fresh validate should not be affected
+        s2 = specmod.validate(copy.deepcopy(FIXTURE))
+        self.assertTrue(s2["sources"]["citations"])
+        self.assertEqual(s2["policy"]["fulltext"]["top"], 3)
+
+        # DEFAULTS should not be affected
+        self.assertTrue(specmod.DEFAULTS["sources"]["citations"])
+        self.assertEqual(specmod.DEFAULTS["policy"]["fulltext"]["top"], 30)
+
+    def test_question_hash_includes_context(self):
+        """Finding 3: question_hash must include area and model context."""
+        s1 = specmod.validate(copy.deepcopy(FIXTURE))
+        hash1 = specmod.question_hash(s1["questions"]["topic"])
+
+        # Change area, hash should differ
+        s2 = specmod.validate(valid(area="A completely different area for a different topic"))
+        hash2 = specmod.question_hash(s2["questions"]["topic"])
+        self.assertNotEqual(hash1, hash2, "Hash should differ when area changes")
+
+        # Change model, hash should differ
+        s3 = specmod.validate(valid(model="different-model"))
+        hash3 = specmod.question_hash(s3["questions"]["topic"])
+        self.assertNotEqual(hash1, hash3, "Hash should differ when model changes")
+
+        # Same spec validated twice should give same hash
+        s4 = specmod.validate(copy.deepcopy(FIXTURE))
+        hash4 = specmod.question_hash(s4["questions"]["topic"])
+        self.assertEqual(hash1, hash4, "Hash should be identical for same spec")
