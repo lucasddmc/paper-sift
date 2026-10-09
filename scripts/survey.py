@@ -17,6 +17,7 @@ with titles, metadata and scores, never abstracts or paper text.
 """
 import argparse
 import datetime
+import json
 import os
 import pathlib
 import sys
@@ -146,7 +147,13 @@ def cmd_collect(args, deps):
     spec = load(survey.path("spec"))
     data = None if args.fresh else survey.read("pool")
     if data is None:
-        data = pool.collect(spec, deps.s2, log=deps.log)
+        try:
+            data = pool.collect(spec, deps.s2, log=deps.log)
+        except ValueError as e:
+            print(str(e))
+            seed_ids = ' '.join(s['id'] for s in spec['seeds'])
+            print(f"Verify seed IDs with: survey.py lookup {seed_ids}")
+            return 2
         survey.write("pool", data)
     if "with_abstract" not in data["stats"]:  # resumes here if a previous run stopped during the lookups
         found, _ = pool.fill_abstracts(data["papers"], deps.find_abstract, log=deps.log, sleep=deps.sleep)
@@ -203,13 +210,56 @@ def cmd_sample(args, deps):
 def cmd_validate(args, deps):
     survey = store.Survey(args.dir)
     spec = load(survey.path("spec"))
-    key, raw = survey.read("sample_key"), survey.read("labels")
-    if key is None or raw is None:
+    key = survey.read("sample_key")
+    if key is None:
         print(f"run sample first and save the labeler's reply to {survey.path('labels')}")
         return 2
-    entries = raw.get("labels", [])
-    labels = {x["id"]: x["label"] for x in entries if x.get("label") in ("relevant", "not_relevant")}
-    reasons = {x["id"]: x.get("reason", "") for x in entries}
+
+    # Read labels from file directly to handle malformed JSON
+    labels_path = survey.path("labels")
+    if not labels_path.exists():
+        print(f"run sample first and save the labeler's reply to {labels_path}")
+        return 2
+
+    try:
+        text = labels_path.read_text()
+        # Strip code fence if present
+        text = text.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            # Remove opening fence (possibly with language specifier)
+            if lines[0].strip().startswith("```"):
+                lines = lines[1:]
+            # Remove closing fence
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines)
+
+        raw = json.loads(text)
+    except json.JSONDecodeError:
+        print(f"malformed labels file: {labels_path}")
+        print("expected shape: {\"labels\": [{\"id\": \"...\", \"label\": \"relevant\" | \"not_relevant\", \"reason\": \"...\"}]}")
+        return 2
+
+    # Handle both {"labels": [...]} and bare list
+    if isinstance(raw, list):
+        entries = raw
+    elif isinstance(raw, dict):
+        entries = raw.get("labels", [])
+    else:
+        print(f"malformed labels file: {labels_path}")
+        print("expected shape: {\"labels\": [{\"id\": \"...\", \"label\": \"relevant\" | \"not_relevant\", \"reason\": \"...\"}]}")
+        return 2
+
+    # Skip entries that are not dicts or lack required fields
+    labels = {}
+    reasons = {}
+    for x in entries:
+        if not isinstance(x, dict) or not isinstance(x.get("id"), str):
+            continue
+        if x.get("label") in ("relevant", "not_relevant"):
+            labels[x["id"]] = x["label"]
+            reasons[x["id"]] = x.get("reason", "")
     result = validate.compare(key["order"], set(key["rejected"]), labels)
     if not result["checked"]:
         print("the labels file has no usable labels")
@@ -332,6 +382,17 @@ COMMANDS = {"doctor": cmd_doctor, "search": cmd_search, "lookup": cmd_lookup, "c
             "validate": cmd_validate, "fulltext": cmd_fulltext, "report": cmd_report, "export": cmd_export}
 
 
+def _maybe_reexec(python, argv, environ, execv):
+    """Detect re-exec loop and return error code instead of exec'ing forever."""
+    if environ.get("PAPER_SIFT_REEXEC") == "1" and python:
+        print("error: pypdf still not available after venv setup; check your environment")
+        return 5
+    if python:
+        environ["PAPER_SIFT_REEXEC"] = "1"
+        execv(str(python), [str(python)] + argv)
+    return None
+
+
 def parser():
     ap = argparse.ArgumentParser(prog="survey.py", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -367,8 +428,16 @@ def main(argv=None, deps=None):
             except RuntimeError as e:
                 print(e)
                 return 5
-            if python:  # run this same command again under the venv that has pypdf
-                os.execv(str(python), [str(python), str(pathlib.Path(__file__).resolve()), *sys.argv[1:]])
+            sys.stdout.flush()
+            sys.stderr.flush()
+            result = _maybe_reexec(
+                python=python,
+                argv=[str(pathlib.Path(__file__).resolve()), *sys.argv[1:]],
+                environ=os.environ,
+                execv=os.execv
+            )
+            if result is not None:
+                return result
         deps = real_deps(spec, getattr(args, "data_dir", None))
     try:
         return COMMANDS[args.command](args, deps)

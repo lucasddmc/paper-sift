@@ -153,3 +153,59 @@ class CliTest(unittest.TestCase):
             code, out = self.cli("doctor")
         self.assertIn("typesafe key: ok (jev-1.13.0)", out)
         self.assertNotIn("tsk-secret", out)
+
+    def test_collect_with_unresolvable_seeds_exits_2(self):
+        # Fake S2 that returns None for all batch calls
+        class FakeBadS2(FakeS2):
+            def batch(self, ids, fields=None):
+                return [None] * len(ids)
+
+        self.deps.s2 = FakeBadS2()
+        d = str(self.dir)
+        code, out = self.cli("collect", d)
+        self.assertEqual(code, 2, out)
+        self.assertIn("none of the seeds", out)
+        self.assertIn("lookup", out)
+
+    def test_validate_with_code_fence_wrapped_labels(self):
+        d = str(self.dir)
+        self.cli("check", d)
+        self.cli("collect", d)
+        self.cli("score", d)
+        code, out = self.cli("sample", d)
+        self.assertEqual(code, 0)
+
+        # Write labels with code fence
+        labels = {"labels": [{"id": p["id"], "label": "relevant", "reason": "test"}
+                            for p in json.loads((self.dir / "validation" / "sample.json").read_text())["papers"]]}
+        fenced = f"```json\n{json.dumps(labels)}\n```"
+        (self.dir / "validation" / "labels.json").write_text(fenced)
+
+        code, out = self.cli("validate", d)
+        self.assertEqual(code, 0, out)
+        self.assertIn("agreement", out)
+
+    def test_validate_with_malformed_labels_exits_2(self):
+        d = str(self.dir)
+        self.cli("check", d)
+        self.cli("collect", d)
+        self.cli("score", d)
+        self.cli("sample", d)
+
+        # Write invalid JSON
+        (self.dir / "validation" / "labels.json").write_text("not json")
+
+        code, out = self.cli("validate", d)
+        self.assertEqual(code, 2)
+        self.assertIn("expected shape", out.lower())
+
+    def test_reexec_detection(self):
+        # Test that _maybe_reexec returns 5 when marker is set and python is not None
+        import os
+        result = survey._maybe_reexec(
+            python=pathlib.Path("/fake/python"),
+            argv=["survey.py", "fulltext", "/some/dir"],
+            environ={"PAPER_SIFT_REEXEC": "1"},
+            execv=lambda *a: None  # mock execv
+        )
+        self.assertEqual(result, 5)
