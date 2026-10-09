@@ -1,3 +1,5 @@
+import threading
+import time
 import unittest
 
 import helpers  # noqa: F401
@@ -55,3 +57,72 @@ class ScreenTest(unittest.TestCase):
         with self.assertRaises(AuthError):
             screen.score([({"paperId": "a", "abstract": "A"}, Q)], SPEC, denied, sink=rows.append,
                          log=lambda m: None)
+
+    def test_rows_sink_immediately_while_earlier_items_block(self):
+        """Verify rows reach sink as they complete, not in submission order."""
+        rows = []
+        blocker = threading.Event()
+
+        def ask_with_block(state, questions):
+            if state["paper"]["abstract"] == "BLOCK":
+                blocker.wait()
+            return {"answers": {n: 0.7 for n in questions}, "tokens": 10, "model": "m"}
+
+        work = [
+            ({"paperId": "block", "abstract": "BLOCK"}, Q),
+            ({"paperId": "fast1", "abstract": "A"}, Q),
+            ({"paperId": "fast2", "abstract": "B"}, Q),
+        ]
+
+        def run_score():
+            screen.score(work, SPEC, ask_with_block, sink=rows.append, workers=4, log=lambda m: None)
+
+        thread = threading.Thread(target=run_score)
+        thread.start()
+
+        # Wait for fast items to be sunk while blocker is still pending
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if len(rows) == 2:
+                # fast1 and fast2 should have reached sink
+                break
+            time.sleep(0.01)
+
+        self.assertEqual(len(rows), 2, "fast items should reach sink while blocker waits")
+        blocker.set()
+        thread.join(timeout=5.0)
+        self.assertEqual(len(rows), 3, "all rows should eventually reach sink")
+
+    def test_cache_key_round_trip_with_context(self):
+        """Verify question hash and current() work correctly with _context."""
+        Q2 = {name: dict(q, _context="ctx1") for name, q in Q.items()}
+        H2 = {name: question_hash(q) for name, q in Q2.items()}
+        papers = [{"paperId": "a", "abstract": "test"}]
+
+        rows_list = []
+
+        def ask(state, questions):
+            return {"answers": {n: 0.9 for n in questions}, "tokens": 20, "model": "m"}
+
+        ok, errors = screen.score([(papers[0], Q2)], SPEC, ask, sink=rows_list.append, log=lambda m: None)
+        self.assertEqual((ok, errors), (1, 0))
+
+        done = screen.current(rows_list, Q2)
+        self.assertEqual(set(done["a"]["answers"].keys()), {"topic", "survey"})
+
+        pending = screen.pending(papers, done, Q2)
+        self.assertEqual(pending, [], "all questions should be answered")
+
+        # Edit one question's instructions (changes hash)
+        Q3 = {name: q for name, q in Q2.items()}
+        Q3["topic"] = dict(Q2["topic"], instructions="Is `paper` about Y?", _context="ctx1")
+
+        # current(rows, Q3) should drop the topic answer (hash mismatch)
+        done_after_edit = screen.current(rows_list, Q3)
+        self.assertNotIn("topic", done_after_edit["a"]["answers"], "edited question should be dropped")
+        self.assertIn("survey", done_after_edit["a"]["answers"], "unchanged question should remain")
+
+        # pending should find the edited question
+        pending_after_edit = screen.pending(papers, done_after_edit, Q3)
+        self.assertEqual(len(pending_after_edit), 1, "edited question should need re-asking")
+        self.assertIn("topic", pending_after_edit[0][1])

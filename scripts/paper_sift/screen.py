@@ -3,7 +3,7 @@
 scores.jsonl is append-only. Each row holds the answers of one call plus a hash of each question's
 text; `current` folds the rows and drops answers to questions edited since.
 """
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .net import AuthError
 from .spec import question_hash
@@ -54,9 +54,20 @@ def score(work, spec, ask, *, sink, workers=16, log=print, every=100):
 
     errors = 0
     with ThreadPoolExecutor(workers) as executor:
-        for i, row in enumerate(executor.map(one, work), 1):
-            sink(row)
-            errors += "error" in row
-            if i % every == 0:
-                log(f"scored {i}/{len(work)}")
+        futures = {executor.submit(one, item): item for item in work}
+        try:
+            for i, future in enumerate(as_completed(futures), 1):
+                try:
+                    row = future.result()
+                except AuthError:
+                    # Cancel remaining futures and re-raise
+                    for f in futures:
+                        f.cancel()
+                    raise
+                sink(row)
+                errors += "error" in row
+                if i % every == 0:
+                    log(f"scored {i}/{len(work)}")
+        except AuthError:
+            raise
     return len(work) - errors, errors
