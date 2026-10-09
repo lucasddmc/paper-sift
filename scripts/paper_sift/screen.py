@@ -57,17 +57,14 @@ def score(work, spec, ask, *, sink, workers=16, log=print, every=100):
         futures = {executor.submit(one, item): item for item in work}
         try:
             for i, future in enumerate(as_completed(futures), 1):
-                try:
-                    row = future.result()
-                except AuthError:
-                    # Cancel remaining futures and re-raise
-                    for f in futures:
-                        f.cancel()
-                    raise
+                row = future.result()
                 sink(row)
                 errors += "error" in row
                 if i % every == 0:
                     log(f"scored {i}/{len(work)}")
-        except AuthError:
+        except BaseException:
+            # Cancel remaining futures and re-raise
+            for f in futures:
+                f.cancel()
             raise
     return len(work) - errors, errors

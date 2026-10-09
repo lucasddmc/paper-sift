@@ -62,11 +62,18 @@ class ScreenTest(unittest.TestCase):
         """Verify rows reach sink as they complete, not in submission order."""
         rows = []
         blocker = threading.Event()
+        two_rows = threading.Event()
+        self.addCleanup(blocker.set)
 
         def ask_with_block(state, questions):
             if state["paper"]["abstract"] == "BLOCK":
-                blocker.wait()
+                blocker.wait(10)
             return {"answers": {n: 0.7 for n in questions}, "tokens": 10, "model": "m"}
+
+        def sink_with_signal(row):
+            rows.append(row)
+            if len(rows) == 2:
+                two_rows.set()
 
         work = [
             ({"paperId": "block", "abstract": "BLOCK"}, Q),
@@ -75,23 +82,37 @@ class ScreenTest(unittest.TestCase):
         ]
 
         def run_score():
-            screen.score(work, SPEC, ask_with_block, sink=rows.append, workers=4, log=lambda m: None)
+            screen.score(work, SPEC, ask_with_block, sink=sink_with_signal, workers=4, log=lambda m: None)
 
-        thread = threading.Thread(target=run_score)
+        thread = threading.Thread(target=run_score, daemon=True)
         thread.start()
 
-        # Wait for fast items to be sunk while blocker is still pending
-        deadline = time.time() + 5.0
-        while time.time() < deadline:
-            if len(rows) == 2:
-                # fast1 and fast2 should have reached sink
-                break
-            time.sleep(0.01)
-
-        self.assertEqual(len(rows), 2, "fast items should reach sink while blocker waits")
+        # Wait for 2 fast items to reach sink while blocker is still pending
+        self.assertTrue(two_rows.wait(5), "fast items should reach sink while blocker waits")
         blocker.set()
         thread.join(timeout=5.0)
         self.assertEqual(len(rows), 3, "all rows should eventually reach sink")
+
+    def test_cancellation_on_sink_failure(self):
+        """Verify queued asks are cancelled when sink raises, not completed."""
+        asks_made = []
+
+        def ask_counter(state, questions):
+            asks_made.append(state["paper"]["paperId"])
+            return {"answers": {n: 0.7 for n in questions}, "tokens": 10, "model": "m"}
+
+        def sink_raises_first(row):
+            if row.get("paperId") == "0":
+                raise OSError("sink failed on first row")
+
+        work = [({"paperId": str(i), "abstract": f"paper {i}"}, Q) for i in range(10)]
+
+        with self.assertRaises(OSError):
+            screen.score(work, SPEC, ask_counter, sink=sink_raises_first, workers=1, log=lambda m: None)
+
+        # With cancellation, should ask at most 3 items (1st asked/completes/sinks/raises, 2nd may be queued/started)
+        # Without cancellation, all 10 would be asked before shutdown completes
+        self.assertLessEqual(len(asks_made), 3, f"too many asks made: {len(asks_made)} (asks: {asks_made})")
 
     def test_cache_key_round_trip_with_context(self):
         """Verify question hash and current() work correctly with _context."""
