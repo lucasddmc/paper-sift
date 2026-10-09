@@ -1,0 +1,10 @@
+{
+  "name": "paper-sift",
+  "version": "0.1.0",
+  "description": "Build a reading list for learning a research area: the Semantic Scholar citation graph, screened with TypeSafe's Jev on full abstracts and full text.",
+  "author": {"name": "Lucas Dantas de Moura Carvalho", "url": "https://github.com/lucasddmc"},
+  "homepage": "https://github.com/lucasddmc/paper-sift",
+  "repository": "https://github.com/lucasddmc/paper-sift",
+  "license": "MIT",
+  "keywords": ["literature-review", "reading-list", "semantic-scholar", "typesafe", "jev", "research"]
+}

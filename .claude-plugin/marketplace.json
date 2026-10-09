@@ -1,0 +1,11 @@
+{
+  "name": "paper-sift",
+  "owner": {"name": "Lucas Dantas de Moura Carvalho"},
+  "plugins": [
+    {
+      "name": "paper-sift",
+      "source": "./",
+      "description": "Build a reading list for learning a research area, screened with TypeSafe's Jev."
+    }
+  ]
+}
