@@ -1,5 +1,6 @@
 {
   "name": "paper-sift",
+  "description": "Claude Code plugins by Lucas Dantas de Moura Carvalho: paper-sift builds reading lists for research areas.",
   "owner": {"name": "Lucas Dantas de Moura Carvalho"},
   "plugins": [
     {
