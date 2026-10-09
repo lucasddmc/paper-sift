@@ -3,6 +3,7 @@
 A transport is any callable `transport(method, url, headers, body, timeout) -> (status, body_bytes)`;
 tests pass fakes, production uses urllib.
 """
+import http.client
 import json
 import time
 import urllib.error
@@ -45,7 +46,7 @@ def request(method, url, *, headers=None, payload=None, transport=None, retries=
     for attempt in range(retries + 1):
         try:
             status, data = transport(method, url, hdrs, body, timeout)
-        except OSError as e:  # URLError, timeouts, refused connections
+        except (OSError, http.client.HTTPException) as e:  # URLError, timeouts, refused connections, truncated or malformed responses
             status, data = None, repr(e).encode()
         if status is not None and 200 <= status < 300:
             return data

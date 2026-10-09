@@ -1,3 +1,4 @@
+import http.client
 import unittest
 
 import helpers  # noqa: F401
@@ -59,3 +60,9 @@ class NetTest(unittest.TestCase):
         with self.assertRaises(HttpError) as ctx:
             request("GET", "https://x.test", transport=t, retries=2, sleep=lambda s: None)
         self.assertEqual(ctx.exception.status, 500)
+
+    def test_retries_truncated_responses(self):
+        waits = []
+        t = scripted(http.client.IncompleteRead(b"x"), (200, b"[]"))
+        self.assertEqual(request_json("GET", "https://x.test", transport=t, sleep=waits.append), [])
+        self.assertEqual(waits, [2.0])
