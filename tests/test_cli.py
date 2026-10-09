@@ -199,13 +199,65 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("expected shape", out.lower())
 
-    def test_reexec_detection(self):
+    def test_reexec_detection_marker_present(self):
         # Test that _maybe_reexec returns 5 when marker is set and python is not None
-        import os
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            result = survey._maybe_reexec(
+                python=pathlib.Path("/fake/python"),
+                argv=["survey.py", "fulltext", "/some/dir"],
+                environ={"PAPER_SIFT_REEXEC": "1"},
+                execv=lambda *a: None  # mock execv
+            )
+        self.assertEqual(result, 5)
+        self.assertIn("pypdf still not available", out.getvalue())
+
+    def test_reexec_calls_execv_once_marker_absent(self):
+        # Test that _maybe_reexec calls execv once when marker is absent
+        called = []
+        def mock_execv(prog, args):
+            called.append((prog, args))
+
+        environ = {}
         result = survey._maybe_reexec(
             python=pathlib.Path("/fake/python"),
-            argv=["survey.py", "fulltext", "/some/dir"],
-            environ={"PAPER_SIFT_REEXEC": "1"},
-            execv=lambda *a: None  # mock execv
+            argv=["survey.py", "fulltext", "/d"],
+            environ=environ,
+            execv=mock_execv
         )
-        self.assertEqual(result, 5)
+
+        # execv should be called exactly once
+        self.assertEqual(len(called), 1)
+        self.assertEqual(called[0], ("/fake/python", ["/fake/python", "survey.py", "fulltext", "/d"]))
+        # environ should have marker set
+        self.assertEqual(environ["PAPER_SIFT_REEXEC"], "1")
+
+    def test_reexec_returns_none_when_python_is_none(self):
+        # Test that _maybe_reexec returns None and doesn't call execv when python is None
+        called = []
+        def mock_execv(prog, args):
+            called.append((prog, args))
+
+        result = survey._maybe_reexec(
+            python=None,
+            argv=["survey.py", "fulltext", "/d"],
+            environ={},
+            execv=mock_execv
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(len(called), 0)
+
+    def test_validate_with_invalid_utf8_labels(self):
+        d = str(self.dir)
+        self.cli("check", d)
+        self.cli("collect", d)
+        self.cli("score", d)
+        self.cli("sample", d)
+
+        # Write invalid UTF-8 bytes
+        (self.dir / "validation" / "labels.json").write_bytes(b"\xff\xfe")
+
+        code, out = self.cli("validate", d)
+        self.assertEqual(code, 2)
+        self.assertIn("expected shape", out.lower())

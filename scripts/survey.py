@@ -222,7 +222,7 @@ def cmd_validate(args, deps):
         return 2
 
     try:
-        text = labels_path.read_text()
+        text = labels_path.read_text(encoding="utf-8")
         # Strip code fence if present
         text = text.strip()
         if text.startswith("```"):
@@ -236,7 +236,7 @@ def cmd_validate(args, deps):
             text = "\n".join(lines)
 
         raw = json.loads(text)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         print(f"malformed labels file: {labels_path}")
         print("expected shape: {\"labels\": [{\"id\": \"...\", \"label\": \"relevant\" | \"not_relevant\", \"reason\": \"...\"}]}")
         return 2
