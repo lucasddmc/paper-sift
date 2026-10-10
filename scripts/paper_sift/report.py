@@ -26,6 +26,9 @@ def why(r, spec):
     return " · ".join(parts)
 
 
+UNREAD = {"no_pdf": "no open PDF", "no_text": "no usable text", "error": "error"}
+
+
 def _pct(x):
     return "n/a" if x is None else f"{x:.0%}"
 
@@ -55,11 +58,18 @@ def render(spec, ctx):
                     f"   {why(r, spec)} · found by {', '.join(r.get('via', []))}"]
         out.append("")
     out += ["## Seeds", ""] + [f"- seed{i}: {seed.get('title')}" for i, seed in enumerate(ctx["seeds"], 1)] + [""]
-    if ctx["no_pdf"] or ctx["no_abstract"]:
+    seeds_unscreened = ctx.get("seeds_no_abstract") or []
+    if ctx["no_pdf"] or ctx["no_abstract"] or seeds_unscreened:
         out += ["## Check by hand", ""]
+        if seeds_unscreened:
+            out += [f"- {p.get('title')} ({p.get('year') or 'n.d.'}): seed without an abstract (not screened). "
+                    f"[link]({link(p)})" for p in seeds_unscreened]
+            out.append("")
         if ctx["no_pdf"]:
-            out += ["Selected for full text, but no open PDF could be read:", ""]
-            out += [f"- {r.get('title')} ({r.get('year') or 'n.d.'}). [link]({link(r)})" for r in ctx["no_pdf"]]
+            out += ["Selected for full text but not read (no open PDF, no usable text, or an error):", ""]
+            out += [f"- {r.get('title')} ({r.get('year') or 'n.d.'}): "
+                    f"{UNREAD.get(r.get('fulltext_status'), r.get('fulltext_status') or 'not read')}. [link]({link(r)})"
+                    for r in ctx["no_pdf"]]
             out.append("")
         if ctx["no_abstract"]:
             out += ["Found by several sources but without an abstract, so never screened:", ""]

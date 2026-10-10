@@ -428,17 +428,20 @@ def build(survey, spec):
         if res.get("status") == "read":
             read.append({**enriched, **res["answers"]})
         else:
-            no_pdf.append(enriched)
+            no_pdf.append({**enriched, "fulltext_status": res.get("status")})
     sections = policy.reading_list(read if spec["fulltext_questions"] else policy.by_priority(passed))
-    no_abstract = sorted((p for p in data["papers"] if not p.get("abstract") and pool.connectivity(p) >= 2),
-                         key=lambda p: -pool.connectivity(p))[:15]
+    seed_ids = {s["paperId"] for s in data["seeds"]}
+    no_abstract = sorted((p for p in data["papers"] if not p.get("abstract") and p["paperId"] not in seed_ids
+                          and pool.connectivity(p) >= 2), key=lambda p: -pool.connectivity(p))[:15]
+    seeds_no_abstract = [p for p in data["papers"] if p["paperId"] in seed_ids and not p.get("abstract")]
     rows = survey.read_lines("scores")
     models = {r["model"] for r in rows if r.get("model")} | {v["model"] for v in ft["papers"].values()
                                                               if v.get("model")}
     return {"stats": data["stats"], "with_abstract": data["stats"].get("with_abstract", 0), "scored": len(recs),
             "passed": len(passed), "passed_ids": {r["paperId"] for r in passed}, "recs": recs,
             "selected": selected, "fulltext": ft["papers"], "sections": sections, "no_pdf": no_pdf,
-            "no_abstract": no_abstract, "seeds": data["seeds"], "validation": survey.read("validation"),
+            "no_abstract": no_abstract, "seeds_no_abstract": seeds_no_abstract, "seeds": data["seeds"],
+            "validation": survey.read("validation"),
             "tokens_abstract": sum(r.get("tokens", 0) for r in rows if "error" not in r),
             "tokens_fulltext": sum(v.get("tokens", 0) for v in ft["papers"].values()),
             "models": models, "date": datetime.date.today().isoformat()}

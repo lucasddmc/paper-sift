@@ -283,6 +283,25 @@ class CliTest(unittest.TestCase):
                       out)
         self.assertNotIn("not verified now", out)
 
+    def test_report_lists_unscreened_seeds_and_unread_papers(self):
+        class NoAbstractSeed(FakeS2):
+            def batch(self, ids, fields=None):
+                return [dict(p, abstract=None) if p and p["paperId"] == "S1" else p for p in super().batch(ids, fields)]
+
+        def pdf_except_b(method, url, headers, body, timeout):
+            return (200, b"<html>") if url.endswith("/B.pdf") else (200, b"%PDF-1.4 fake")
+
+        self.deps.s2, self.deps.transport = NoAbstractSeed(), pdf_except_b
+        d = str(self.dir)
+        for command in ("collect", "score", "fulltext", "report"):
+            code, out = self.cli(command, d)
+            self.assertEqual(code, 0, out)
+        text = (self.dir / "report.md").read_text()
+        check = text.split("## Check by hand", 1)[1]
+        self.assertIn("- Denoising Diffusion Probabilistic Models (2020): seed without an abstract "
+                      "(not screened).", check)
+        self.assertIn("- Classifier-free guidance for diffusion (2022): no open PDF.", check)
+
     def test_invalid_spec_exits_2(self):
         (self.dir / "spec.json").write_text("{}")
         code, out = self.cli("check", str(self.dir))

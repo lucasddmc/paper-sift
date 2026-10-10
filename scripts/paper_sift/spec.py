@@ -5,6 +5,7 @@ import json
 import pathlib
 import re
 
+from .jev import DEFAULT_MODEL
 from .policy import VARIABLES, Expr, PolicyError
 
 POOL_MIN, POOL_MAX, POOL_DEFAULT = 100, 3000, 800
@@ -12,7 +13,7 @@ RECIPES = ("learn-area",)
 NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 DEFAULTS = {
-    "version": 1, "recipe": "learn-area", "model": "jev-1.13.0", "tau": 0.5, "years": None,
+    "version": 1, "recipe": "learn-area", "model": DEFAULT_MODEL, "tau": 0.5, "years": None,
     "pool_size": POOL_DEFAULT, "queries": [],
     "sources": {"citations": True, "references": True, "recommendations": True, "search_per_query": 100},
     "fulltext_questions": {},
@@ -77,7 +78,7 @@ def validate(raw):
         raise SpecError("tau must be between 0 and 1")
     model = spec.get("model")
     if not isinstance(model, str) or not model.strip():
-        raise SpecError("model must be a non-empty string, e.g. jev-1.13.0")
+        raise SpecError(f"model must be a non-empty string, e.g. {DEFAULT_MODEL}")
     seeds = spec.get("seeds")
     if not isinstance(seeds, list) or not seeds or not all(isinstance(s, dict) and isinstance(s.get("id"), str)
                                                           for s in seeds):
@@ -132,7 +133,7 @@ def validate(raw):
     if isinstance(final_top, bool) or not isinstance(final_top, int) or final_top < 1:
         raise SpecError("policy.final_top must be a positive integer")
 
-    # Finding 3: Add context hash to all questions
+    # Answers also depend on the area and the model, so both go into every question's hash.
     context = hashlib.sha256((spec["area"] + "\x1f" + spec["model"]).encode()).hexdigest()[:12]
     for q in spec["questions"].values():
         q["_context"] = context

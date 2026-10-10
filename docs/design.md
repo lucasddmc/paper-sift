@@ -213,8 +213,9 @@ never printed. Papers without an open PDF are listed in the report for manual re
 - the reading list: **Start here** (papers where `start_here` holds), then one section per subtopic,
   ordered by `final_rank`, up to `final_top` papers in all. Each entry shows title, year, venue, link,
   the facts that put it there, importance and provenance;
-- what to check by hand: gate-passing papers without an open PDF, and highly connected papers
-  without an abstract;
+- what to check by hand: seeds without an abstract (never screened), papers selected for full text
+  but not read (no open PDF, no usable text, or an error), and highly connected papers without an
+  abstract;
 - validation results, if run; the model version that answered; tokens and estimated cost.
 
 `survey.py export` writes `reading-list.bib`, built from S2 metadata, and `scored.csv`, with every
@@ -310,6 +311,10 @@ Install: `claude plugin marketplace add lucasddmc/paper-sift`, then
   customer requests.
 - To S2, OpenAlex and arXiv: search queries, paper IDs and titles.
 - Nothing else from the user's files.
+
+The blind labeler has the Read tool and reads untrusted abstracts, so an injected abstract could try to
+make it read other files; it is told to read nothing else, and its reply passes through the main
+session.
 
 TypeSafe's Master Customer Agreement (last updated 2026-09-23), Terms of Use (2026-09-19) and
 Acceptable Use Policy (2026-09-23) were read on 2026-10-08. None restricts publishing benchmarks or

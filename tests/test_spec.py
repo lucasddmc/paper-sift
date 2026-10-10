@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 import helpers
+from paper_sift import jev
 from paper_sift import spec as specmod
 
 FIXTURE = json.loads((helpers.ROOT / "tests" / "fixtures" / "spec.json").read_text())
@@ -59,6 +60,12 @@ class SpecTest(unittest.TestCase):
         raw["fulltext_questions"]["survey"] = raw["questions"]["survey"]
         with self.assertRaises(specmod.SpecError):
             specmod.validate(raw)
+
+    def test_default_model_comes_from_the_jev_client(self):
+        self.assertEqual(specmod.DEFAULTS["model"], jev.DEFAULT_MODEL)
+        source = (helpers.ROOT / "scripts" / "paper_sift" / "spec.py").read_text()
+        self.assertNotIn(jev.DEFAULT_MODEL, source)  # one literal, in jev.py
+        self.assertNotIn("Finding", source)
 
     def test_question_hash_follows_the_text_only(self):
         q = {"instructions": "a", "true": "b", "false": "c"}

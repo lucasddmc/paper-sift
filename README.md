@@ -103,8 +103,8 @@ abstracts in OpenAlex one at a time.
 - One recipe for now: learning an area. Novelty checks and property searches are planned.
 - Only open-access full text is read; the report lists the rest for you.
 - Jev reads English best, so questions are always written in English.
-- Papers without an abstract on Semantic Scholar or OpenAlex are not screened; the report lists the
-  best-connected of them (found by two or more sources, up to 15).
+- Papers without an abstract on Semantic Scholar or OpenAlex are not screened; the report lists every
+  such seed and the best-connected of the others (found by two or more sources, up to 15).
 
 ## Development
 

@@ -7,7 +7,7 @@ from .net import request_json
 API = "https://api.semanticscholar.org/graph/v1"
 REC_API = "https://api.semanticscholar.org/recommendations/v1/papers/"
 FIELDS = "paperId,title,abstract,year,venue,externalIds,citationCount,publicationTypes"
-EDGE_CAP = 10_000  # S2 serves at most this many citations or references per paper
+EDGE_CAP = 9_999  # S2 refuses offset + limit >= 10,000, so this is all it serves per paper and relation
 BATCH = 500
 
 

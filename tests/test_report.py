@@ -45,6 +45,22 @@ class ReportTest(unittest.TestCase):
         self.assertIn("## Check by hand", text)
         self.assertIn("at most 10% of the rejected papers", text)
 
+    def test_unscreened_seeds_are_checked_by_hand(self):
+        seed = {"paperId": "s9", "title": "A Seed Without Abstract", "year": 2019, "externalIds": {}}
+        text = report.render(SPEC, ctx(seeds_no_abstract=[seed]))
+        self.assertIn("## Check by hand", text)
+        self.assertIn("- A Seed Without Abstract (2019): seed without an abstract (not screened). "
+                      "[link](https://www.semanticscholar.org/paper/s9)", text)
+
+    def test_unread_selected_papers_show_their_status(self):
+        unread = [dict(REC, paperId=pid, title=f"Paper {pid}", fulltext_status=status)
+                  for pid, status in (("p1", "no_pdf"), ("p2", "no_text"), ("p3", "error"))]
+        text = report.render(SPEC, ctx(no_pdf=unread))
+        self.assertIn("Selected for full text but not read (no open PDF, no usable text, or an error):", text)
+        self.assertIn("- Paper p1 (2020): no open PDF.", text)
+        self.assertIn("- Paper p2 (2020): no usable text.", text)
+        self.assertIn("- Paper p3 (2020): error.", text)
+
     def test_bibtex(self):
         bib = report.bibtex([REC, dict(REC, paperId="def")])
         self.assertIn("@misc{ho2020denoising,", bib)
