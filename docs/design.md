@@ -123,11 +123,14 @@ writes `spec.json`, and the user may edit it.
   exclusion. The default full-text set is `didactic`, `map` (gives an overview of many methods),
   `formulation` (explicit problem statement), `limitations` and `code`; Claude adapts the wording
   to the area.
-- **How Claude writes questions** is fixed in `skills/survey/question-guide.md`: one atomic judgment
-  per question; literal wording; criteria that agree with the instruction; explicit "does NOT count"
-  lines for look-alikes; fields referenced by name (`paper`, `area`); no double negation; and **no
-  holistic "is this relevant?" question as a gate**. (A holistic "close to our project" question once
-  accepted "used as a baseline" and let every paper on a common baseline technique through.)
+- **How Claude writes questions** is fixed in the "Writing the questions" section of
+  `skills/survey/SKILL.md`: one atomic judgment per question; literal wording; criteria that agree
+  with the instruction; explicit "does NOT count" lines for look-alikes; fields referenced by name
+  (`paper`, `area`); no double negation; and **no holistic "is this relevant?" question as a gate**.
+  (A holistic "close to our project" question once accepted "used as a baseline" and let every paper
+  on a common baseline technique through.) The skill keeps its references (the spec fields and these
+  rules) inside `SKILL.md` because files beside it are outside the user's project and the agent could
+  not read them after the first turn.
 - **Policy expressions** go through a small whitelisted parser (Python `ast`, no `eval`). A bare fact
   name means "probability ≥ `tau`"; `p.<fact>` is the probability; `importance`, `year` and
   `citations` are available. Allowed: `and`, `or`, `not`, comparisons, `+ - * /`, numbers and
@@ -273,9 +276,7 @@ paper-sift/
 │   ├── plugin.json
 │   └── marketplace.json       # the repo is its own marketplace
 ├── skills/survey/
-│   ├── SKILL.md               # /paper-sift:survey
-│   ├── spec-reference.md
-│   └── question-guide.md
+│   └── SKILL.md               # /paper-sift:survey, with the spec reference and the question guide
 ├── agents/blind-labeler.md
 ├── scripts/
 │   ├── survey.py              # doctor, search, lookup, check, estimate, collect, score, sample, validate, fulltext, report, export

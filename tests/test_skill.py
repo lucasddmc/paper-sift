@@ -1,8 +1,10 @@
+import json
 import re
 import unittest
 
 import helpers
 import survey
+from paper_sift import spec as specmod
 
 SKILL_DIR = helpers.ROOT / "skills" / "survey"
 
@@ -24,11 +26,29 @@ class SkillTest(unittest.TestCase):
         self.assertTrue(used)
         self.assertLessEqual(used, set(survey.COMMANDS))
 
-    def test_supporting_files_exist_and_are_linked(self):
+    def test_the_references_live_inside_skill_md(self):
+        """The spec reference and the question guide are the last two sections of SKILL.md, not files beside it.
+
+        Files beside SKILL.md sit in the plugin directory, outside the user's project, and the agent could not
+        Read them after the first turn. SKILL.md itself is always loaded with the skill.
+        """
         text = (SKILL_DIR / "SKILL.md").read_text()
+        self.assertEqual(re.findall(r"^## (.+)$", text, re.M)[-2:], ["spec.json reference", "Writing the questions"])
         for name in ("spec-reference.md", "question-guide.md"):
-            self.assertIn(name, text)
-            self.assertTrue((SKILL_DIR / name).exists())
+            self.assertTrue(name not in text, f"SKILL.md still mentions {name}")
+            self.assertFalse((SKILL_DIR / name).exists(), f"{name} still exists")
+        step = text.split("## 4. Search plan", 1)[1].split("\n## ", 1)[0]
+        for title in ("spec.json reference", "Writing the questions"):
+            self.assertIn(title, step)
+
+    def test_the_example_in_the_spec_reference_is_a_valid_spec(self):
+        text = (SKILL_DIR / "SKILL.md").read_text()
+        marker = "\n## spec.json reference\n"
+        self.assertTrue(marker in text, "SKILL.md has no '## spec.json reference' section")
+        section = text.split(marker, 1)[1].split("\n## ", 1)[0]
+        example = re.search(r"```json\n(.*?)\n```", section, re.S)
+        self.assertTrue(example, "the reference has no ```json example")
+        self.assertEqual(specmod.validate(json.loads(example.group(1)))["slug"], "diffusion-models")
 
     def test_key_rule_present(self):
         self.assertIn("Never ask for, accept, read or print an API key", (SKILL_DIR / "SKILL.md").read_text())
