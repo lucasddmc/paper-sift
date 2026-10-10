@@ -135,6 +135,10 @@ writes `spec.json`, and the user may edit it.
   name means "probability ≥ `tau`"; `p.<fact>` is the probability; `importance`, `year` and
   `citations` are available. Allowed: `and`, `or`, `not`, comparisons, `+ - * /`, numbers and
   parentheses.
+- **Unknown keys are errors.** `survey.py check` rejects a key the schema above does not define, at
+  every level (top level, `sources`, `policy`, `policy.fulltext`, each seed and each question), and
+  names it with the keys that level allows. A full-text limit written under an invented key used to
+  pass and was ignored.
 - **State sent to Jev:** `{"area": ..., "paper": {"title": ..., "abstract": ...}}`, with all
   questions in one call (fan-out). The full-text stage sends `"text"` instead of `"abstract"`.
 
@@ -266,9 +270,13 @@ MCP servers, but not the Bash commands a skill runs.
 - Every stage writes to disk as it goes and resumes when re-run. `collect` saves its progress after
   each source (`pool.partial.json.gz`, deleted once the pool is written) and every 50 OpenAlex lookups;
   `--fresh` starts over.
-- The skill pre-approves only `Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/*)` through
-  `allowed-tools`. `collect`, `score` and `fulltext` run in the background (`run_in_background`,
-  timeout above the estimate, at most 2 hours); the other commands run in the foreground.
+- The skill pre-approves only `Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/survey.py *)` through
+  `allowed-tools`. In the first real test that held only for the turn that invoked the skill, and
+  Claude Code documents no way for a plugin to ship standing allow rules. So the Preflight tells the
+  user to allow `survey.py` commands for the project ("Yes, and don't ask again"), and every command
+  runs as a plain `python3 <path>/survey.py ...`: a `cd ... &&` prefix does not match the rule.
+  `collect`, `score` and `fulltext` run in the background (`run_in_background`, timeout above the
+  estimate, at most 2 hours); the other commands run in the foreground.
 
 ## 12. Repository layout
 
