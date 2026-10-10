@@ -23,9 +23,13 @@ step. Run every other command in the foreground: `doctor`, `search`, `lookup`, `
 
 ## Rules
 
-1. **Keys never pass through the chat.** Never ask for, accept, read or print an API key. If the user
-   pastes one, do not use it: say that it is now in the conversation history, suggest revoking it at
-   https://console.typesafe.ai/, and point to the setup command from `survey.py doctor`.
+1. **Keys never pass through the chat.** Never ask for, accept, read or print an API key. Whenever a
+   message contains something that looks like an API key (even as an aside, even "if needed"), the
+   first thing your reply does is say that keys must not be shared in the chat, that this one is now
+   in the conversation history, and that the user should revoke it in the provider's console
+   (https://console.typesafe.ai/ for TypeSafe) and save a new one in their own terminal with the setup
+   command (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup_key.py" typesafe`, or `s2` for a Semantic
+   Scholar key). Then go on without using it.
 2. **Seeds come from the API, never from memory.** A seed goes into the spec only after it appeared in
    `survey.py search` or `survey.py lookup` output with its ID.
 3. **Do not open the survey's data files** (`pool.json.gz`, `pool.partial.json.gz`, `scores.jsonl`,

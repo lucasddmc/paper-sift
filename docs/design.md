@@ -240,9 +240,11 @@ python3 "<plugin root>/scripts/setup_key.py" typesafe
 
 The script reads the key with `getpass` (nothing is echoed), writes it with mode 600 in a directory
 with mode 700, validates it with one minimal call, and prints only "OK" or the error. The skill
-forbids Claude from reading key files and from accepting a key pasted in the chat. If one is pasted,
-Claude does not use it, says it is now in the conversation history, and suggests revoking it in the
-TypeSafe console.
+forbids Claude from reading key files and from accepting a key pasted in the chat. If a message
+contains something that looks like a key, even as an aside ("my key is ..., if needed"), the first
+thing Claude's reply does is say that keys must not be shared in the chat and that this one is now in
+the conversation history, and that the user should revoke it in the provider's console and save a new
+one with the setup command. Then it goes on without using the key.
 
 Plugin `userConfig` with `sensitive: true` was considered and rejected: its values reach hooks and
 MCP servers, but not the Bash commands a skill runs.

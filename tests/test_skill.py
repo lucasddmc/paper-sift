@@ -66,6 +66,20 @@ class SkillTest(unittest.TestCase):
     def test_key_rule_present(self):
         self.assertIn("Never ask for, accept, read or print an API key", (SKILL_DIR / "SKILL.md").read_text())
 
+    def test_a_key_in_a_message_is_flagged_first_even_as_an_aside(self):
+        """Any key in a message is flagged first, even when the user mentions it as an aside.
+
+        In the first real test the user wrote 'my TypeSafe key is ..., if needed' and the agent left the key
+        unused without saying a word about it.
+        """
+        text = (SKILL_DIR / "SKILL.md").read_text()
+        rule = text.split("1. **Keys never pass through the chat.**", 1)[1].split("\n2. ", 1)[0]
+        rule = " ".join(rule.split())  # the text is wrapped at 100 columns
+        for phrase in ("looks like an API key", "even as an aside", 'even "if needed"', "first thing",
+                       "must not be shared in the chat", "conversation history", "revoke", "setup command",
+                       "without using it"):
+            self.assertIn(phrase, rule)
+
     def test_s2_key_is_strongly_recommended(self):
         skill = (SKILL_DIR / "SKILL.md").read_text()
         self.assertIn("s2 api: rate-limited", skill)
