@@ -251,9 +251,10 @@ MCP servers, but not the Bash commands a skill runs.
 - PDFs are cached in the same data directory.
 - Every request sends the User-Agent `paper-sift/<version>`: TypeSafe's CDN answers 403 to the
   default urllib agent.
-- 429, 5xx and 529 are retried with exponential backoff (cap 60 s). 401 stops with "invalid key".
-  422 prints the field the API rejected and stops. Failed per-paper calls are recorded and retried on
-  the next run.
+- 429, 5xx and 529 are retried with exponential backoff (cap 60 s). 401 and 403 stop with "invalid
+  key". Any other 4xx stops the stage and prints the field the API rejected, never the reply. Failed
+  per-paper calls are recorded with their HTTP status and retried on the next run; 20 failed calls in a
+  row stop `score` (TypeSafe is likely down).
 - S2 without a key often returns 429. `collect` retries 10 times with backoff; `search` and `lookup`
   stop after 3 retries (about 14 s) and say how to get the free key. OpenAlex is called serially.
 - Every stage writes to disk as it goes and resumes when re-run. `collect` saves its progress after

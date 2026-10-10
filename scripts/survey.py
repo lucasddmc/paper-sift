@@ -16,6 +16,7 @@ with titles, metadata and scores, never abstracts or paper text.
   survey.py export DIR                     write reading-list.bib and scored.csv
 """
 import argparse
+import collections
 import datetime
 import json
 import os
@@ -29,7 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from paper_sift import deps as depsmod  # noqa: E402
 from paper_sift import estimate as estimatemod  # noqa: E402
 from paper_sift import fulltext, jev, keys, openalex, pool, report, screen, store, validate  # noqa: E402
-from paper_sift.net import AuthError, HttpError  # noqa: E402
+from paper_sift.net import AuthError, HttpError, is_client_error  # noqa: E402
 from paper_sift.pdftext import extract as pdf_extract  # noqa: E402
 from paper_sift.ranking import Policy, records  # noqa: E402
 from paper_sift.s2 import S2  # noqa: E402
@@ -38,6 +39,7 @@ from paper_sift.spec import SpecError, load, question_hash  # noqa: E402
 SETUP = pathlib.Path(__file__).resolve().parent / "setup_key.py"
 SHOW_FIELDS = "paperId,title,year,externalIds,citationCount"
 S2_HOST = "api.semanticscholar.org"
+TYPESAFE_HOST = urllib.parse.urlsplit(jev.ENDPOINT).hostname
 FOREGROUND_RETRIES = 3  # search and lookup wait in the foreground: 2 + 4 + 8 s of backoff, then they stop
 S2_RATE_LIMITED = ("Semantic Scholar is rate-limiting requests without a key. Get a free key at "
                    "https://www.semanticscholar.org/product/api and save it with: "
@@ -93,6 +95,38 @@ def reason(e):
     return e.body.decode("utf-8", "replace")[:150] if e.status == 0 else f"HTTP {e.status}"
 
 
+def rejected_field(body):
+    """Where a JSON error body says the request went wrong: FastAPI-style detail[].loc joined with dots, else
+    a top-level detail, error or message string cut at 100 characters. Never the body itself."""
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    detail = data.get("detail")
+    if isinstance(detail, list):
+        locs = [".".join(str(part) for part in d["loc"]) for d in detail
+                if isinstance(d, dict) and isinstance(d.get("loc"), list)]
+        if locs:
+            return ("rejected " + ", ".join(locs[:3]))[:200]
+    for name in ("detail", "error", "message"):
+        if isinstance(data.get(name), str):
+            return data[name][:100]
+    return ""
+
+
+def typesafe_refusal(e):
+    where = rejected_field(e.body)
+    return f"TypeSafe refused the request (HTTP {e.status})" + (f": {where}" if where else ".")
+
+
+def failures_by_status(errors):
+    """One line: 'failures by status: HttpError 503 (3), KeyError (1)' from the error texts of failed rows."""
+    counts = collections.Counter(error.split("(", 1)[0].strip() for error in errors)
+    return "failures by status: " + ", ".join(f"{kind} ({n})" for kind, n in counts.most_common())
+
+
 def show(papers):
     for p in papers:
         ids = p.get("externalIds") or {}
@@ -123,7 +157,10 @@ def cmd_doctor(args, deps):
             print("typesafe key: rejected by TypeSafe")
             print(f'setup: python3 "{SETUP}" typesafe')
         except HttpError as e:
-            print(f"typesafe key: present, not verified now ({reason(e)})")
+            if is_client_error(e):  # the check itself was refused: the model or the request is wrong
+                print(f"typesafe key: present; {typesafe_refusal(e)}")
+            else:
+                print(f"typesafe key: present, not verified now ({reason(e)})")
     s2_key = keys.get_key("s2")
     if s2_key:
         print("s2 key: present")
@@ -234,8 +271,14 @@ def cmd_score(args, deps):
         return key_problem()
     data, done, _ = scored_records(survey, spec)
     work = screen.pending(data["papers"], done, spec["questions"])
-    ok, errors = screen.score(work, spec, deps.ask, sink=lambda row: survey.append_lines("scores", [row]),
-                              log=deps.log)
+    failures = []
+
+    def sink(row):
+        survey.append_lines("scores", [row])
+        if "error" in row:
+            failures.append(row["error"])
+
+    ok, errors = screen.score(work, spec, deps.ask, sink=sink, log=deps.log)
     _, _, recs = scored_records(survey, spec)
     policy = Policy(spec)
     passed = policy.by_priority(policy.passing(recs))
@@ -243,6 +286,7 @@ def cmd_score(args, deps):
           f"pass the gate: {len(passed):,} ({len(passed) / max(len(recs), 1):.0%})")
     if errors:
         print("some calls failed: run score again to retry only those")
+        print(failures_by_status(failures))
     print("top by priority:")
     for r in passed[:15]:
         print(f"  {r.get('topic', 0.0):.2f} {r.get('year') or '----'} {(r.get('title') or '')[:90]}")
@@ -364,6 +408,8 @@ def cmd_fulltext(args, deps):
     print(f"selected {len(selected)} | " + " | ".join(f"{k} {v}" for k, v in sorted(counts.items())))
     if counts.get("error"):
         print("some calls failed: run fulltext again to retry them")
+        print(failures_by_status(results[r["paperId"]].get("error", "unknown") for r in selected
+                                 if results.get(r["paperId"], {}).get("status") == "error"))
     return 0
 
 
@@ -533,7 +579,11 @@ def main(argv=None, deps=None):
 
 
 def service_problem(e, deps):
-    """What to tell the user about an HttpError that stopped a command."""
+    """What to tell the user about an HttpError that stopped a command. Never a TypeSafe reply body."""
+    if e.status == 0:
+        return f"request to {host(e.url)} failed: {reason(e)}"
+    if host(e.url) == TYPESAFE_HOST:
+        return typesafe_refusal(e)
     if host(e.url) == S2_HOST and e.status == 429:
         if not s2_key_set(deps):
             return S2_RATE_LIMITED

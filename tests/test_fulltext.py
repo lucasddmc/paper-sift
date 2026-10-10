@@ -67,6 +67,41 @@ class FulltextTest(unittest.TestCase):
         self.assertEqual(sizes, [1000, 500])
         self.assertEqual(out["chars"], 500)
 
+    def test_ask_text_raises_a_client_error_on_the_half_text_too(self):
+        sizes = []
+
+        def refused(state, questions):
+            sizes.append(len(state["paper"]["text"]))
+            raise HttpError(422, b'{"detail": "no"}', "https://api.typesafe.ai/v1/systemone")
+
+        with self.assertRaises(HttpError) as ctx:
+            fulltext.ask_text({"title": "T"}, "x" * 1000, SPEC, refused)
+        self.assertEqual((ctx.exception.status, sizes), (422, [1000, 500]))
+
+    def test_ask_text_records_other_errors_by_status_only(self):
+        def down(state, questions):
+            raise HttpError(503, b"secret reply", "https://api.typesafe.ai/v1/systemone")
+
+        self.assertEqual(fulltext.ask_text({"title": "T"}, "x" * 1000, SPEC, down), {"error": "HttpError 503"})
+
+    def test_run_stops_on_a_client_error_and_records_server_errors(self):
+        recs = [{"paperId": "ok", "title": "OK"}]
+        for status, stops in ((422, True), (503, False)):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as d:
+                def failing(state, questions):
+                    raise HttpError(status, b"", "https://api.typesafe.ai/v1/systemone")
+
+                def run():
+                    return fulltext.run(recs, SPEC, FakeS2(), failing, d, {}, extract=lambda path: LONG,
+                                        transport=transport, sleep=lambda s: None, log=lambda m: None)
+
+                if stops:
+                    with self.assertRaises(HttpError):
+                        run()
+                else:
+                    res = run()["ok"]
+                    self.assertEqual((res["status"], res["error"]), ("error", "HttpError 503"))
+
     def test_run_statuses_and_skips_done(self):
         recs = [{"paperId": "ok"}, {"paperId": "closed"}, {"paperId": "short"}, {"paperId": "done"}]
         hashes = {"didactic": question_hash(SPEC["fulltext_questions"]["didactic"])}

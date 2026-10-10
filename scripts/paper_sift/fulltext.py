@@ -5,7 +5,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-from .net import AuthError, HttpError, request
+from .net import AuthError, HttpError, is_client_error, request
 from .pdftext import MIN_CHARS, prepare
 from .spec import question_hash
 
@@ -49,7 +49,8 @@ def download(url, dest, *, transport=None, sleep=time.sleep):
 
 
 def ask_text(rec, text, spec, ask):
-    """Ask the full-text questions; on an HTTP error retry once with half the text."""
+    """Ask the full-text questions; on an HTTP error retry once with half the text (a text too long for Jev
+    can come back as 413 or 422). A client error on the half text too would hit every paper: it is raised."""
     questions = spec["fulltext_questions"]
     last = None
     for size in (len(text), len(text) // 2):
@@ -63,7 +64,9 @@ def ask_text(rec, text, spec, ask):
             continue
         return {"answers": out["answers"], "tokens": out["tokens"], "model": out["model"], "chars": size,
                 "hashes": {name: question_hash(q) for name, q in questions.items()}}
-    return {"error": repr(last)[:300]}
+    if is_client_error(last):
+        raise last
+    return {"error": f"HttpError {last.status}"}  # the status, never the body
 
 
 def run(selected, spec, s2, ask, cache, done, *, extract, transport=None, sleep=time.sleep, log=print, workers=6):
@@ -103,13 +106,16 @@ def run(selected, spec, s2, ask, cache, done, *, extract, transport=None, sleep=
         pid, (r, body, base, was_cut, total) = item
         try:
             out = ask_text(r, body, spec, ask)
-        except AuthError:
-            raise
-        except Exception as e:
-            return pid, {**base, "status": "error", "error": type(e).__name__, "cut_references": was_cut,
-                         "chars_pdf": total}
-        return pid, {**base, "status": "error" if "error" in out else "read", "cut_references": was_cut,
-                     "chars_pdf": total, **out}
+        except HttpError as e:
+            if is_client_error(e):  # auth, or a refusal every paper would get: stop the stage
+                raise
+            error = f"HttpError {e.status}"
+        except Exception as e:  # e.g. a malformed reply: recorded, retried on the next run
+            error = type(e).__name__
+        else:
+            return pid, {**base, "status": "error" if "error" in out else "read", "cut_references": was_cut,
+                         "chars_pdf": total, **out}
+        return pid, {**base, "status": "error", "error": error, "cut_references": was_cut, "chars_pdf": total}
 
     with ThreadPoolExecutor(workers) as executor:
         for pid, res in executor.map(one, texts.items()):

@@ -31,6 +31,12 @@ class AuthError(HttpError):
     """401 or 403: the key is missing, wrong or revoked."""
 
 
+def is_client_error(e):
+    """A 4xx other than 429, auth errors included: the request itself is wrong, so it is not retried and
+    every other call would get the same answer."""
+    return 400 <= e.status < 500 and e.status != 429
+
+
 def urllib_transport(method, url, headers, body, timeout):
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:

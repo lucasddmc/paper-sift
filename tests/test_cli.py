@@ -11,7 +11,7 @@ from unittest import mock
 
 import helpers
 import survey
-from paper_sift import keys, store
+from paper_sift import jev, keys, store
 from paper_sift.net import HttpError
 from paper_sift.s2 import S2
 
@@ -201,6 +201,87 @@ class CliTest(unittest.TestCase):
         self.assertIn("full-text stage out of date", out)
         self.assertEqual(self.cli("fulltext", d)[0], 0)
         self.assertEqual(self.cli("report", d)[0], 0)
+
+    def test_a_systematic_jev_refusal_stops_score(self):
+        self.cli("collect", str(self.dir))
+        bodies = (b'{"detail":[{"loc":["body","questions","topic"]}]}',
+                  b'{"detail":[{"loc":["body","questions","topic"],"msg":"too long",'
+                  b'"input":"We present diffusion probabilistic models"}]}')
+        for body in bodies:
+            with self.subTest(body=body):
+                def refused(state, questions):
+                    raise HttpError(422, body, jev.ENDPOINT)
+
+                self.deps.ask = refused
+                code, out = self.cli("score", str(self.dir))
+                self.assertEqual(code, 4, out)
+                self.assertIn("TypeSafe refused the request (HTTP 422)", out)
+                self.assertIn("questions.topic", out)
+                for raw in ("detail", '"loc"', "diffusion probabilistic", "too long"):
+                    self.assertNotIn(raw, out)
+
+    def test_twenty_failed_calls_in_a_row_stop_score(self):
+        class BigS2(FakeS2):
+            def edges(self, pid, relation):
+                more = [P(f"X{i}", f"Diffusion paper {i}", "About diffusion.") for i in range(25)]
+                return super().edges(pid, relation) + (more if relation == "citations" else [])
+
+        self.deps.s2 = BigS2()
+        self.cli("collect", str(self.dir))
+
+        def down(state, questions):
+            raise HttpError(503, b"", jev.ENDPOINT)
+
+        self.deps.ask = down
+        code, out = self.cli("score", str(self.dir))
+        self.assertEqual(code, 4, out)
+        self.assertIn("request to api.typesafe.ai failed: too many consecutive failures; TypeSafe may be down", out)
+        rows = store.Survey(self.dir).read_lines("scores")
+        self.assertEqual(len(rows), 20)  # 33 papers have an abstract; the stage stopped at the 20th failure
+        self.assertTrue(all(row["error"] == "HttpError 503" for row in rows))
+
+    def test_score_and_fulltext_print_failures_by_status(self):
+        d = str(self.dir)
+        self.cli("collect", d)
+
+        def flaky(state, questions):
+            title = state["paper"]["title"]
+            if title.startswith("Graph"):
+                raise HttpError(503, b"secret reply", jev.ENDPOINT)
+            if title.startswith("Protein"):
+                raise KeyError("answers")
+            return fake_ask(state, questions)
+
+        self.deps.ask = flaky
+        code, out = self.cli("score", d)
+        self.assertEqual(code, 0, out)
+        self.assertIn("failures by status: HttpError 503 (1), KeyError (1)", out)
+        self.assertNotIn("secret", out)
+        self.assertNotIn("secret", (self.dir / "scores.jsonl").read_text())
+
+        def flaky_text(state, questions):
+            if "text" in state["paper"] and state["paper"]["title"].startswith("Classifier"):
+                raise HttpError(503, b"secret reply", jev.ENDPOINT)
+            return fake_ask(state, questions)
+
+        self.deps.ask = flaky_text
+        code, out = self.cli("fulltext", d)
+        self.assertEqual(code, 0, out)
+        self.assertIn("failures by status: HttpError 503 (1)", out)
+        self.assertNotIn("secret", (self.dir / "fulltext.json").read_text())
+
+    def test_doctor_reports_a_client_error_as_a_refusal(self):
+        def answers(method, url, headers, body, timeout):
+            if "typesafe" in url:
+                return 422, b'{"error": "unknown model jev-1.13.0"}'
+            return 200, b"[]"
+
+        self.deps.transport = answers
+        with mock.patch.object(keys, "get_key", side_effect=lambda service, **kw: {"typesafe": "tsk-x"}.get(service)):
+            code, out = self.cli("doctor")
+        self.assertIn("typesafe key: present; TypeSafe refused the request (HTTP 422): unknown model jev-1.13.0",
+                      out)
+        self.assertNotIn("not verified now", out)
 
     def test_invalid_spec_exits_2(self):
         (self.dir / "spec.json").write_text("{}")

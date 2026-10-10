@@ -1,9 +1,10 @@
+import json
 import threading
 import unittest
 
 import helpers  # noqa: F401
-from paper_sift import screen
-from paper_sift.net import AuthError
+from paper_sift import jev, screen
+from paper_sift.net import AuthError, HttpError
 from paper_sift.spec import question_hash
 
 Q = {"topic": {"instructions": "Is `paper` about X?", "true": "y", "false": "n"},
@@ -56,6 +57,65 @@ class ScreenTest(unittest.TestCase):
         with self.assertRaises(AuthError):
             screen.score([({"paperId": "a", "abstract": "A"}, Q)], SPEC, denied, sink=rows.append,
                          log=lambda m: None)
+
+    def test_client_errors_stop_the_stage(self):
+        asked = []
+
+        def refused(state, questions):
+            asked.append(state["paper"]["abstract"])
+            raise HttpError(422, b'{"detail": "bad"}', jev.ENDPOINT)
+
+        work = [({"paperId": str(i), "abstract": f"abstract_{i}"}, Q) for i in range(10)]
+        with self.assertRaises(HttpError) as ctx:
+            screen.score(work, SPEC, refused, sink=lambda row: None, workers=1, log=lambda m: None)
+        self.assertEqual(ctx.exception.status, 422)
+        self.assertLessEqual(len(asked), 2)  # queued calls were cancelled
+
+    def test_error_rows_keep_the_status_not_the_body(self):
+        for status in (503, 429, 0):
+            with self.subTest(status=status):
+                rows = []
+
+                def failing(state, questions):
+                    raise HttpError(status, b'{"echo": "secret abstract text"}', jev.ENDPOINT)
+
+                ok, errors = screen.score([({"paperId": "a", "abstract": "A"}, Q)], SPEC, failing, sink=rows.append,
+                                          log=lambda m: None)
+                self.assertEqual((ok, errors), (0, 1))
+                self.assertEqual(rows, [{"paperId": "a", "error": f"HttpError {status}"}])
+                self.assertNotIn("secret", json.dumps(rows))
+
+    def test_twenty_consecutive_failures_stop_the_stage(self):
+        asked, rows = [], []
+        turn = threading.Semaphore(1)  # each call waits until the previous row was sunk
+
+        def down(state, questions):
+            self.assertTrue(turn.acquire(timeout=5))
+            asked.append(1)
+            raise HttpError(503, b"", jev.ENDPOINT)
+
+        def sink(row):
+            rows.append(row)
+            turn.release()
+
+        work = [({"paperId": str(i), "abstract": "A"}, Q) for i in range(50)]
+        with self.assertRaises(HttpError) as ctx:
+            screen.score(work, SPEC, down, sink=sink, workers=1, log=lambda m: None)
+        e = ctx.exception
+        self.assertEqual((e.status, e.body, e.url),
+                         (0, b"too many consecutive failures; TypeSafe may be down", jev.ENDPOINT))
+        self.assertEqual(len(rows), 20)
+        self.assertLessEqual(len(asked), 21)
+
+    def test_a_success_resets_the_failure_count(self):
+        def flaky(state, questions):
+            if state["paper"]["abstract"] == "ok":
+                return {"answers": {n: 0.7 for n in questions}, "tokens": 10, "model": "m"}
+            raise HttpError(503, b"", jev.ENDPOINT)
+
+        work = [({"paperId": str(i), "abstract": "ok" if i == 19 else "A"}, Q) for i in range(39)]
+        ok, errors = screen.score(work, SPEC, flaky, sink=lambda row: None, workers=1, log=lambda m: None)
+        self.assertEqual((ok, errors), (1, 38))
 
     def test_rows_sink_immediately_while_earlier_items_block(self):
         """Verify rows reach sink as they complete, not in submission order."""

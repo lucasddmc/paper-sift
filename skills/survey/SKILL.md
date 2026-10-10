@@ -45,7 +45,10 @@ step. Run every other command in the foreground: `doctor`, `search`, `lookup`, `
   it printed and ask the user to run it in their own terminal.
 - **exit 4**: a service refused the request. If it says Semantic Scholar is rate-limiting requests
   without a key, show the setup command it printed and ask the user to run it in their own terminal
-  (the key is free), then retry; with a key, wait a few minutes and retry.
+  (the key is free), then retry; with a key, wait a few minutes and retry. If TypeSafe refused the
+  request, the printed field says what it rejected (often a question or the `model` in `spec.json`):
+  fix the spec, run `survey.py check`, and rerun the step. After "too many consecutive failures",
+  TypeSafe may be down: wait a few minutes and rerun; finished papers are kept.
 - **exit 5**: `pypdf` could not be installed. Show the printed hint to the user.
 
 ## 1. Preflight
