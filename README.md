@@ -85,9 +85,14 @@ not ground truth; a sample this size catches gross failures, not small losses.
 
 ## Cost and time
 
-At Jev's published price (US$ 0.042 per million input tokens), 800 abstracts plus ~40 full texts cost
-about US$ 0.10. Collection takes several minutes for 800 papers, mostly spent looking up missing
-abstracts in OpenAlex one at a time.
+Measured on a real 100-paper survey (5 highly cited seeds, no Semantic Scholar key, 2026-10-10):
+collection took 8.7 minutes (about 35 Semantic Scholar requests, most of the time spent waiting out
+rate limits), screening 96 abstracts took 4 seconds, and reading 17 open-access PDFs took about
+1.5 minutes. Jev cost about US$ 0.02.
+
+At Jev's published price (US$ 0.042 per million input tokens), an 800-paper survey with ~40 full texts
+should cost around US$ 0.10. Collection time grows with how often the seeds are cited and with
+Semantic Scholar's rate limits, which is where a key helps most.
 
 ## What leaves your machine
 
