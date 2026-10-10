@@ -308,6 +308,12 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("spec error", out)
 
+    def test_check_names_a_key_the_spec_does_not_define(self):
+        self.edit_spec(lambda spec: spec["policy"].update(fulltext_limit=5))
+        code, out = self.cli("check", str(self.dir))
+        self.assertEqual(code, 2)
+        self.assertIn("spec error: policy: unknown key 'fulltext_limit' (allowed: gate, priority, ", out)
+
     def test_score_without_key_exits_3(self):
         self.cli("collect", str(self.dir))
         self.deps.ask = None

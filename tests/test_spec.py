@@ -17,6 +17,34 @@ def valid(**changes):
     return raw
 
 
+# Each level of spec.json with a key it does not define: (level, where the error points, the key, the keys
+# the level allows, a change that adds the key to a valid spec).
+UNKNOWN_KEY_CASES = [
+    ("top level", "top level", "fulltext_chars",
+     ("version", "recipe", "slug", "model", "tau", "area", "seeds", "queries", "sources", "years", "pool_size",
+      "questions", "fulltext_questions", "policy"),
+     lambda raw: raw.update(fulltext_chars=90000)),
+    ("sources", "sources", "max_hops",
+     ("citations", "references", "recommendations", "search_per_query"),
+     lambda raw: raw.update(sources={"citations": True, "max_hops": 2})),
+    ("policy", "policy", "fulltext_limit",
+     ("gate", "priority", "fulltext", "start_here", "final_rank", "final_top"),
+     lambda raw: raw["policy"].update(fulltext_limit=5)),
+    ("policy.fulltext", "policy.fulltext", "chars",
+     ("top", "per_subtopic", "include_seeds"),
+     lambda raw: raw["policy"]["fulltext"].update(chars=1000)),
+    ("seed", "seeds[0]", "doi",
+     ("id", "title", "why"),
+     lambda raw: raw["seeds"][0].update(doi="10.1/x")),
+    ("abstract question", "questions.topic", "description",
+     ("instructions", "true", "false", "label"),
+     lambda raw: raw["questions"]["topic"].update(description="x")),
+    ("full-text question", "fulltext_questions.map", "note",
+     ("instructions", "true", "false", "label"),
+     lambda raw: raw["fulltext_questions"]["map"].update(note="x")),
+]
+
+
 class SpecTest(unittest.TestCase):
     def test_fixture_is_valid_and_gets_defaults(self):
         s = specmod.validate(copy.deepcopy(FIXTURE))
@@ -136,3 +164,40 @@ class SpecTest(unittest.TestCase):
         s4 = specmod.validate(copy.deepcopy(FIXTURE))
         hash4 = specmod.question_hash(s4["questions"]["topic"])
         self.assertEqual(hash1, hash4, "Hash should be identical for same spec")
+
+    def test_unknown_keys_are_rejected_at_every_level(self):
+        """A key the spec does not define used to be ignored without a word: the value never took effect."""
+        for level, where, key, allowed, add in UNKNOWN_KEY_CASES:
+            raw = valid()
+            add(raw)
+            with self.subTest(level=level):
+                with self.assertRaises(specmod.SpecError) as caught:
+                    specmod.validate(raw)
+                named, listed = str(caught.exception).split(" (allowed: ")
+                self.assertIn(f"{where}: unknown key '{key}'", named)
+                self.assertEqual(set(listed.rstrip(")").split(", ")), set(allowed))
+
+    def test_every_unknown_key_is_named(self):
+        with self.assertRaises(specmod.SpecError) as caught:
+            specmod.validate(valid(extra_one=1, extra_two=2))
+        message = str(caught.exception)
+        self.assertIn("unknown keys", message)
+        self.assertIn("'extra_one'", message)
+        self.assertIn("'extra_two'", message)
+
+    def test_a_misspelled_key_is_named_before_anything_is_reported_missing(self):
+        raw = valid()
+        raw["quesitons"] = raw.pop("questions")
+        with self.assertRaisesRegex(specmod.SpecError, "unknown key 'quesitons'"):
+            specmod.validate(raw)
+        raw = valid()
+        topic = raw["questions"]["topic"]
+        topic["instruction"] = topic.pop("instructions")
+        with self.assertRaisesRegex(specmod.SpecError, "unknown key 'instruction'"):
+            specmod.validate(raw)
+
+    def test_a_validated_spec_validates_again(self):
+        """validate adds _context to every question, and the validated spec is what the rest of the code holds."""
+        once = specmod.validate(copy.deepcopy(FIXTURE))
+        self.assertIn("_context", once["questions"]["topic"])
+        self.assertEqual(specmod.validate(once), once)

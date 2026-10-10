@@ -21,6 +21,16 @@ DEFAULTS = {
                "fulltext": {"top": 30, "per_subtopic": 5, "include_seeds": True},
                "start_here": "False", "final_rank": "p.topic", "final_top": 20},
 }
+# The keys each level of spec.json defines. Any other key is an error: it would be ignored, and the value
+# its author meant to set would never take effect.
+TOP_KEYS = ("version", "recipe", "slug", "model", "tau", "area", "seeds", "queries", "sources", "years",
+            "pool_size", "questions", "fulltext_questions", "policy")
+SOURCES_KEYS = ("citations", "references", "recommendations", "search_per_query")
+POLICY_KEYS = ("gate", "priority", "fulltext", "start_here", "final_rank", "final_top")
+FULLTEXT_KEYS = ("top", "per_subtopic", "include_seeds")
+SEED_KEYS = ("id", "title", "why")
+QUESTION_KEYS = ("instructions", "true", "false", "label")
+SET_BY_VALIDATE = ("_context",)  # validate adds it to every question, so a validated spec validates again
 
 
 class SpecError(ValueError):
@@ -44,6 +54,15 @@ def _merge(defaults, given):
     return out
 
 
+def _check_keys(obj, allowed, where, set_by_validate=()):
+    """Reject keys the level does not define, naming them and listing the ones it does."""
+    unknown = [key for key in obj if key not in allowed and key not in set_by_validate]
+    if unknown:
+        names = ", ".join(repr(key) for key in unknown)
+        raise SpecError(f"{where}: unknown key{'s' if len(unknown) > 1 else ''} {names} "
+                        f"(allowed: {', '.join(allowed)})")
+
+
 def _check_questions(questions, where):
     if not isinstance(questions, dict):
         raise SpecError(f"{where} must be an object")
@@ -53,6 +72,7 @@ def _check_questions(questions, where):
         if not NAME.match(name) or name == "p" or name in VARIABLES:
             raise SpecError(f"{where}: invalid name {name!r} (lowercase letters, digits and _; "
                             f"not 'p' or {', '.join(VARIABLES)})")
+        _check_keys(q, QUESTION_KEYS, f"{where}.{name}", SET_BY_VALIDATE)
         for field in ("instructions", "true", "false"):
             if not isinstance(q.get(field), str) or not q[field].strip():
                 raise SpecError(f"{where}.{name}: missing {field!r}")
@@ -65,6 +85,7 @@ def validate(raw):
     # Deep copy to avoid sharing mutable state
     raw = copy.deepcopy(raw)
     spec = _merge(copy.deepcopy(DEFAULTS), raw)
+    _check_keys(spec, TOP_KEYS, "top level")
     if spec["version"] != 1:
         raise SpecError("version must be 1")
     if spec["recipe"] not in RECIPES:
@@ -83,6 +104,8 @@ def validate(raw):
     if not isinstance(seeds, list) or not seeds or not all(isinstance(s, dict) and isinstance(s.get("id"), str)
                                                           for s in seeds):
         raise SpecError("seeds must be a non-empty list of {id, title, why}")
+    for i, seed in enumerate(seeds):
+        _check_keys(seed, SEED_KEYS, f"seeds[{i}]")
     if not isinstance(spec["queries"], list) or not all(isinstance(q, str) and q.strip() for q in spec["queries"]):
         raise SpecError("queries must be a list of strings")
     n = spec["pool_size"]
@@ -95,6 +118,7 @@ def validate(raw):
     # Guard sources as dict
     if not isinstance(spec.get("sources"), dict):
         raise SpecError("sources must be an object")
+    _check_keys(spec["sources"], SOURCES_KEYS, "sources")
     per_query = spec["sources"].get("search_per_query")
     if isinstance(per_query, bool) or not isinstance(per_query, int) or not 0 <= per_query <= 100:
         raise SpecError("sources.search_per_query must be an integer from 0 to 100")
@@ -111,9 +135,11 @@ def validate(raw):
     if not isinstance(spec.get("policy"), dict):
         raise SpecError("policy must be an object")
     policy = spec["policy"]
+    _check_keys(policy, POLICY_KEYS, "policy")
     # Guard policy.fulltext as dict
     if not isinstance(policy.get("fulltext"), dict):
         raise SpecError("policy.fulltext must be an object")
+    _check_keys(policy["fulltext"], FULLTEXT_KEYS, "policy.fulltext")
     abstract = list(spec["questions"])
     everything = abstract + list(spec["fulltext_questions"])
     for key, facts in (("gate", abstract), ("priority", abstract), ("start_here", everything),
