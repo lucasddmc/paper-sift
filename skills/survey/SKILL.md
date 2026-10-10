@@ -53,7 +53,13 @@ step. Run every other command in the foreground: `doctor`, `search`, `lookup`, `
 
 ## 1. Preflight
 
-Run `survey.py doctor --data-dir "${CLAUDE_PLUGIN_DATA}"`.
+Before running `doctor`, tell the user that Claude Code will ask permission for `survey.py` commands,
+and that choosing to allow them for this project ("Yes, and don't ask again") lets the later steps run
+without prompts. Run every `survey.py` command as a plain
+`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/survey.py ...` command, never prefixed with `cd ... &&`: a
+compound command does not match the allow rule.
+
+Then run `survey.py doctor --data-dir "${CLAUDE_PLUGIN_DATA}"`.
 
 - If the TypeSafe key is missing or rejected, show the `setup:` command it printed in a `bash` block
   and ask the user to run it **in their own terminal**, not in this chat and not with `!`. Keys come

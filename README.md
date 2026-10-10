@@ -49,8 +49,9 @@ stay in the conversation history.
 ```
 
 Claude asks what you already know, which papers you trust and how many papers to screen; proposes seeds
-and questions with a cost estimate; and runs each stage after you approve. Results go to
-`./paper-sift/<date>-<slug>/`:
+and questions with a cost estimate; and runs each stage after you approve. Claude Code will ask
+permission for the plugin's `survey.py` commands: choose "Yes, and don't ask again" for the project and
+the later steps run without prompts. Results go to `./paper-sift/<date>-<slug>/`:
 
 | file | contents |
 |---|---|

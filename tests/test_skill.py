@@ -50,6 +50,19 @@ class SkillTest(unittest.TestCase):
         self.assertTrue(example, "the reference has no ```json example")
         self.assertEqual(specmod.validate(json.loads(example.group(1)))["slug"], "diffusion-models")
 
+    def test_the_user_is_told_to_allow_the_survey_commands(self):
+        """The user is asked to allow the survey commands for the project, and every command stays plain.
+
+        allowed-tools pre-approves survey.py only for the turn that invoked the skill, and a plugin cannot ship
+        standing allow rules; a command prefixed with `cd ... &&` would not match the rule either.
+        """
+        text = (SKILL_DIR / "SKILL.md").read_text()
+        preflight = text.split("## 1. Preflight", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("Yes, and don't ask again", preflight)
+        self.assertLess(preflight.index("Yes, and don't ask again"), preflight.index("survey.py doctor"))
+        self.assertIn("never prefixed with `cd ... &&`", preflight)
+        self.assertIn("Yes, and don't ask again", (helpers.ROOT / "README.md").read_text())
+
     def test_key_rule_present(self):
         self.assertIn("Never ask for, accept, read or print an API key", (SKILL_DIR / "SKILL.md").read_text())
 
